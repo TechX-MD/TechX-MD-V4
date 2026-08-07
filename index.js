@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Event-Driven Vercel Pairing Route
+// Dynamic WA Web Version Pairing Route for Vercel
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -33,7 +33,9 @@ app.get('/pair', async (req, res) => {
         const {
             useMultiFileAuthState,
             delay,
-            makeCacheableSignalKeyStore
+            makeCacheableSignalKeyStore,
+            fetchLatestBaileysVersion,
+            Browsers
         } = baileys;
 
         if (fs.existsSync(sessionDir)) {
@@ -41,7 +43,9 @@ app.get('/pair', async (req, res) => {
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        const version = [2, 3000, 1017531202];
+        
+        // Dynamic WA Web Version to fix "Couldn't link device" mismatch
+        const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({
             version,
@@ -51,12 +55,11 @@ app.get('/pair', async (req, res) => {
             },
             printQRInTerminal: false,
             logger: pino({ level: "fatal" }),
-            browser: ["Ubuntu", "Chrome", "20.0.04"]
+            browser: Browsers.ubuntu("Chrome")
         });
 
         sock.ev.on('creds.update', saveCreds);
 
-        // Wait until WebSocket is ready before requesting code
         const getCodePromise = () => new Promise((resolve, reject) => {
             let codeSent = false;
 
@@ -66,7 +69,7 @@ app.get('/pair', async (req, res) => {
                 if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
                     codeSent = true;
                     try {
-                        await delay(3000); // Buffer for Vercel socket handshake
+                        await delay(3000);
                         const code = await sock.requestPairingCode(num);
                         const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
                         resolve(formattedCode);
@@ -77,8 +80,8 @@ app.get('/pair', async (req, res) => {
             });
 
             setTimeout(() => {
-                if (!codeSent) reject(new Error("Connection Timeout - Please click Generate again"));
-            }, 11000);
+                if (!codeSent) reject(new Error("Connection Timeout - Retry again"));
+            }, 12000);
         });
 
         const code = await getCodePromise();
