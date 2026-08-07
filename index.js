@@ -9,19 +9,17 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Helper for Vercel Writable Directory (/tmp)
 function getSessionDir(num) {
     return path.join(os.tmpdir(), `session_${num}`);
 }
 
-// Serve static UI from public/
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Pairing Code Generator Endpoint
+// Promise-based Vercel Pairing Route
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -58,16 +56,38 @@ app.get('/pair', async (req, res) => {
 
         sock.ev.on('creds.update', saveCreds);
 
-        if (!sock.authState.creds.registered) {
-            await delay(3000);
-            const code = await sock.requestPairingCode(num);
-            const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+        // Promise Wrapper for Vercel Serverless Execution
+        const getPairingCodePromise = () => new Promise((resolve, reject) => {
+            let codeSent = false;
 
-            return res.status(200).json({ code: formattedCode });
-        }
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, qr } = update;
+
+                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
+                    codeSent = true;
+                    try {
+                        await delay(3000); // Wait 3s for serverless socket handshake
+                        const code = await sock.requestPairingCode(num);
+                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+                        resolve(formattedCode);
+                    } catch (err) {
+                        reject(err);
+                    }
+                }
+            });
+
+            // Fallback timeout for Vercel (8 seconds)
+            setTimeout(() => {
+                if (!codeSent) reject(new Error("Connection Timeout"));
+            }, 8000);
+        });
+
+        const code = await getPairingCodePromise();
+        return res.status(200).json({ code });
+
     } catch (err) {
-        console.error("Pairing Error:", err);
-        return res.status(500).json({ error: "Failed to generate pairing code." });
+        console.error("Vercel Pairing Error:", err);
+        return res.status(500).json({ error: "Failed to generate pairing code. Please try again." });
     }
 });
 
