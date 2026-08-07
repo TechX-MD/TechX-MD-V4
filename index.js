@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Direct Stable Vercel Pairing Endpoint
+// Dynamic ESM Import Pairing Endpoint for Vercel
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -28,20 +28,20 @@ app.get('/pair', async (req, res) => {
     const sessionDir = getSessionDir(num);
 
     try {
+        // Dynamic import to support Baileys ES Module on Vercel
+        const baileys = await import('@whiskeysockets/baileys');
+        const makeWASocket = baileys.default?.default || baileys.default || baileys;
         const {
-            default: makeWASocket,
             useMultiFileAuthState,
             delay,
             makeCacheableSignalKeyStore
-        } = require('@whiskeysockets/baileys');
+        } = baileys;
 
         if (fs.existsSync(sessionDir)) {
             fs.removeSync(sessionDir);
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-
-        // Hardcoded stable WA Web Version to prevent Vercel fetch timeouts
         const version = [2, 3000, 1017531202];
 
         const sock = makeWASocket({
