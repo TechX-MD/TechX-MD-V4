@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Dynamic WA Web Version Pairing Route for Vercel
+// Vercel Keep-Alive Pairing Engine
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -43,8 +43,6 @@ app.get('/pair', async (req, res) => {
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        
-        // Dynamic WA Web Version to fix "Couldn't link device" mismatch
         const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({
@@ -60,41 +58,45 @@ app.get('/pair', async (req, res) => {
 
         sock.ev.on('creds.update', saveCreds);
 
-        const getCodePromise = () => new Promise((resolve, reject) => {
-            let codeSent = false;
+        let codeSent = false;
 
-            sock.ev.on('connection.update', async (update) => {
-                const { connection, qr } = update;
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
 
-                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
-                    codeSent = true;
-                    try {
-                        await delay(3000);
-                        const code = await sock.requestPairingCode(num);
-                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-                        resolve(formattedCode);
-                    } catch (err) {
-                        reject(err);
+            if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
+                codeSent = true;
+                try {
+                    await delay(3000);
+                    const code = await sock.requestPairingCode(num);
+                    const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+                    
+                    if (!res.headersSent) {
+                        res.status(200).json({ code: formattedCode });
+                    }
+                } catch (err) {
+                    console.error("Pair Request Error:", err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ error: "Failed to request code. Try again." });
                     }
                 }
-            });
+            }
 
-            setTimeout(() => {
-                if (!codeSent) reject(new Error("Connection Timeout - Retry again"));
-            }, 12000);
+            if (connection === 'open') {
+                console.log(`\n🎉 [SUCCESS] Device Linked Successfully on Vercel for ${num}!\n`);
+            }
+
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                if (statusCode === 515) {
+                    console.log(`[VERCEL HANDSHAKE] Status 515 - Completing login sequence...`);
+                }
+            }
         });
 
-        const code = await getCodePromise();
-
-        if (!res.headersSent) {
-            return res.status(200).json({ code });
-        }
-
     } catch (err) {
-        console.error("Vercel Pairing Error:", err);
-        const errMsg = err?.message || err?.toString() || "Unknown Error";
+        console.error("Vercel Server Error:", err);
         if (!res.headersSent) {
-            return res.status(500).json({ error: `Pairing Error: ${errMsg}` });
+            return res.status(500).json({ error: "Vercel Server Error occurred." });
         }
     }
 });
