@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Vercel Pairing Endpoint ne Smart Socket Retry Loop
+// Fast Crash-Proof Vercel Pairing Endpoint
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -27,19 +27,14 @@ app.get('/pair', async (req, res) => {
     num = num.replace(/[^0-9]/g, '');
     const sessionDir = getSessionDir(num);
 
-    console.log(`\n[VERCEL PAIR] Starting pairing for: ${num}`);
-
     try {
-        const importBaileys = new Function('return import("@whiskeysockets/baileys")');
-        const baileys = await importBaileys();
-        
+        // Native Dynamic Import for Baileys on Vercel
+        const baileys = await import('@whiskeysockets/baileys');
         const makeWASocket = baileys.default?.default || baileys.default || baileys;
         const {
             useMultiFileAuthState,
             delay,
-            makeCacheableSignalKeyStore,
-            fetchLatestBaileysVersion,
-            Browsers
+            makeCacheableSignalKeyStore
         } = baileys;
 
         if (fs.existsSync(sessionDir)) {
@@ -47,52 +42,47 @@ app.get('/pair', async (req, res) => {
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        const { version } = await fetchLatestBaileysVersion();
 
         const sock = makeWASocket({
-            version,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
             },
             printQRInTerminal: false,
             logger: pino({ level: "fatal" }),
-            browser: Browsers.ubuntu("Chrome")
+            browser: ["Ubuntu", "Chrome", "20.0.04"]
         });
 
         sock.ev.on('creds.update', saveCreds);
 
-        // Smart Retry Loop to wait for WebSocket Connection on Vercel
-        let code = null;
-        let attempts = 0;
+        let codeSent = false;
 
-        while (!code && attempts < 10) {
-            attempts++;
-            await delay(1500);
-            try {
-                if (!sock.authState.creds.registered) {
-                    const rawCode = await sock.requestPairingCode(num);
-                    if (rawCode) {
-                        code = rawCode.match(/.{1,4}/g)?.join("-") || rawCode;
-                        console.log(`[VERCEL PAIR SUCCESS] Generated Code: ${code}`);
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, qr } = update;
+
+            if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
+                codeSent = true;
+                try {
+                    await delay(2000); // Fast 2s buffer to fit Vercel 10s timeout
+                    const code = await sock.requestPairingCode(num);
+                    const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+
+                    if (!res.headersSent) {
+                        return res.status(200).json({ code: formattedCode });
+                    }
+                } catch (err) {
+                    console.error("Pairing Request Error:", err);
+                    if (!res.headersSent) {
+                        return res.status(500).json({ error: "Failed to generate pairing code. Please try again." });
                     }
                 }
-            } catch (err) {
-                console.log(`[VERCEL RETRY ${attempts}/10] Waiting for WhatsApp WebSocket connection...`);
             }
-        }
-
-        if (code && !res.headersSent) {
-            return res.status(200).json({ code });
-        } else if (!res.headersSent) {
-            return res.status(500).json({ error: "Connection timeout. Please tap Generate Pairing Code again." });
-        }
+        });
 
     } catch (err) {
-        console.error("Vercel Server Error:", err);
-        const errMsg = err?.message || err?.toString() || "Unknown Error";
+        console.error("Vercel Function Error:", err);
         if (!res.headersSent) {
-            return res.status(500).json({ error: `Pairing Error: ${errMsg}` });
+            return res.status(500).json({ error: err?.message || "Server Error occurred." });
         }
     }
 });
