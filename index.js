@@ -1,6 +1,8 @@
 const express = require('express');
 const pino = require('pino');
 const fs = require('fs-extra');
+const path = require('path');
+const os = require('os');
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -16,7 +18,24 @@ const startTime = Date.now();
 
 app.use(express.json());
 
-// Format Uptime Helper
+// Helper for Vercel Read-Only Filesystem Compatibility
+function getSessionDir(num) {
+    const isVercel = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+    const baseDir = isVercel ? os.tmpdir() : './';
+    return path.join(baseDir, `session_${num}`);
+}
+
+function getSessionCount() {
+    try {
+        const isVercel = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+        const baseDir = isVercel ? os.tmpdir() : './';
+        if (!fs.existsSync(baseDir)) return 0;
+        return fs.readdirSync(baseDir).filter(f => f.startsWith('session_')).length;
+    } catch (e) {
+        return 0;
+    }
+}
+
 function getUptime() {
     const uptime = Math.floor((Date.now() - startTime) / 1000);
     const hours = Math.floor(uptime / 3600);
@@ -27,7 +46,7 @@ function getUptime() {
 // 1. Cyber Panel Web Interface
 app.get('/', (req, res) => {
     const memoryMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-    const sessionCount = fs.readdirSync('./').filter(f => f.startsWith('session_')).length;
+    const sessionCount = getSessionCount();
 
     res.send(`
     <!DOCTYPE html>
@@ -279,9 +298,9 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Auto-Reconnecting Session Engine with Auto-Logout File Cleanup
+// Auto-Reconnecting Session Engine (V4 Vercel Compatible)
 async function startWhatsAppSession(num, res = null) {
-    const sessionDir = `./session_${num}`;
+    const sessionDir = getSessionDir(num);
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -307,24 +326,18 @@ async function startWhatsAppSession(num, res = null) {
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            console.log(`[SESSION ${num}] Closed with StatusCode: ${statusCode}`);
-
             const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-            // 🔴 AUTOMATIC SESSION DELETION ON LOGOUT FROM PHONE
             if (isLoggedOut) {
-                console.log(`\n🚨 [LOGOUT DETECTED] Number ${num} logged out from phone. Automatically deleting session files...\n`);
+                console.log(`\n🚨 [LOGOUT DETECTED] Number ${num} logged out. Deleting session files...\n`);
                 try {
                     if (fs.existsSync(sessionDir)) {
                         fs.removeSync(sessionDir);
-                        console.log(`🗑️ [CLEANUP SUCCESS] Session directory ${sessionDir} wiped successfully!\n`);
                     }
                 } catch (err) {
                     console.error("Cleanup error:", err);
                 }
-            } 
-            // 🟡 RECONNECT ON OTHER TEMPORARY DISCONNECTS (e.g. 515)
-            else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
+            } else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
                 console.log(`[SESSION ${num}] Reconnecting automatically...`);
                 await delay(2000);
                 startWhatsAppSession(num);
@@ -524,7 +537,7 @@ app.get('/pair', async (req, res) => {
     if (!num) return res.status(400).send({ error: "Please enter a valid phone number." });
 
     num = num.replace(/[^0-9]/g, '');
-    const sessionDir = `./session_${num}`;
+    const sessionDir = getSessionDir(num);
 
     if (fs.existsSync(sessionDir)) {
         fs.removeSync(sessionDir);
@@ -533,14 +546,11 @@ app.get('/pair', async (req, res) => {
     startWhatsAppSession(num, res);
 });
 
-// Auto-start saved session
-const existingSessions = fs.readdirSync('./').filter(f => f.startsWith('session_'));
-existingSessions.forEach(sDir => {
-    const num = sDir.replace('session_', '');
-    console.log(`[AUTO-RESTART] Loading session for ${num}...`);
-    startWhatsAppSession(num);
-});
+// Vercel Serverless Export
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`\n🚀 TechX-MD V4 Control Panel running on http://localhost:${PORT}\n`);
+    });
+}
 
-app.listen(PORT, () => {
-    console.log(`\n🚀 TechX-MD V4 Control Panel running on http://localhost:${PORT}\n`);
-});
+module.exports = app;
