@@ -2,10 +2,7 @@
   "name": "techx-md-v4",
   "version": "1.0.0",
   "description": "TechX-MD V4 Control Panel",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "main": "api/pair.js",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",
     "express": "^4.19.2",
