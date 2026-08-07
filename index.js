@@ -1,19 +1,8 @@
-import express from 'express';
-import path from 'path';
-import os from 'os';
-import fs from 'fs-extra';
-import pino from 'pino';
-import { fileURLToPath } from 'url';
-import makeWASocket, {
-    useMultiFileAuthState,
-    delay,
-    makeCacheableSignalKeyStore,
-    fetchLatestBaileysVersion,
-    Browsers
-} from '@whiskeysockets/baileys';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const path = require('path');
+const os = require('os');
+const fs = require('fs-extra');
+const pino = require('pino');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Native ESM Vercel Pairing Endpoint
+// Vercel Pairing Endpoint ne Smart Socket Retry Loop
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -38,9 +27,21 @@ app.get('/pair', async (req, res) => {
     num = num.replace(/[^0-9]/g, '');
     const sessionDir = getSessionDir(num);
 
-    console.log(`\n[ESM PAIR REQUEST] Starting pairing for: ${num}`);
+    console.log(`\n[VERCEL PAIR] Starting pairing for: ${num}`);
 
     try {
+        const importBaileys = new Function('return import("@whiskeysockets/baileys")');
+        const baileys = await importBaileys();
+        
+        const makeWASocket = baileys.default?.default || baileys.default || baileys;
+        const {
+            useMultiFileAuthState,
+            delay,
+            makeCacheableSignalKeyStore,
+            fetchLatestBaileysVersion,
+            Browsers
+        } = baileys;
+
         if (fs.existsSync(sessionDir)) {
             fs.removeSync(sessionDir);
         }
@@ -61,38 +62,34 @@ app.get('/pair', async (req, res) => {
 
         sock.ev.on('creds.update', saveCreds);
 
-        const getCodePromise = () => new Promise((resolve, reject) => {
-            let codeSent = false;
+        // Smart Retry Loop to wait for WebSocket Connection on Vercel
+        let code = null;
+        let attempts = 0;
 
-            sock.ev.on('connection.update', async (update) => {
-                const { connection, qr } = update;
-
-                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
-                    codeSent = true;
-                    try {
-                        await delay(3000);
-                        const code = await sock.requestPairingCode(num);
-                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-                        resolve(formattedCode);
-                    } catch (err) {
-                        reject(err);
+        while (!code && attempts < 10) {
+            attempts++;
+            await delay(1500);
+            try {
+                if (!sock.authState.creds.registered) {
+                    const rawCode = await sock.requestPairingCode(num);
+                    if (rawCode) {
+                        code = rawCode.match(/.{1,4}/g)?.join("-") || rawCode;
+                        console.log(`[VERCEL PAIR SUCCESS] Generated Code: ${code}`);
                     }
                 }
-            });
+            } catch (err) {
+                console.log(`[VERCEL RETRY ${attempts}/10] Waiting for WhatsApp WebSocket connection...`);
+            }
+        }
 
-            setTimeout(() => {
-                if (!codeSent) reject(new Error("Connection Timeout - Retry again"));
-            }, 10000);
-        });
-
-        const code = await getCodePromise();
-
-        if (!res.headersSent) {
+        if (code && !res.headersSent) {
             return res.status(200).json({ code });
+        } else if (!res.headersSent) {
+            return res.status(500).json({ error: "Connection timeout. Please tap Generate Pairing Code again." });
         }
 
     } catch (err) {
-        console.error("Vercel ESM Pairing Error:", err);
+        console.error("Vercel Server Error:", err);
         const errMsg = err?.message || err?.toString() || "Unknown Error";
         if (!res.headersSent) {
             return res.status(500).json({ error: `Pairing Error: ${errMsg}` });
@@ -106,4 +103,4 @@ if (!process.env.VERCEL) {
     });
 }
 
-export default app;
+module.exports = app;
