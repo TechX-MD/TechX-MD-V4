@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Dynamic ESM Import Pairing Endpoint for Vercel
+// Event-Driven Vercel Pairing Route
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -28,7 +28,6 @@ app.get('/pair', async (req, res) => {
     const sessionDir = getSessionDir(num);
 
     try {
-        // Dynamic import to support Baileys ES Module on Vercel
         const baileys = await import('@whiskeysockets/baileys');
         const makeWASocket = baileys.default?.default || baileys.default || baileys;
         const {
@@ -57,15 +56,37 @@ app.get('/pair', async (req, res) => {
 
         sock.ev.on('creds.update', saveCreds);
 
-        if (!sock.authState.creds.registered) {
-            await delay(2000);
-            const code = await sock.requestPairingCode(num);
-            const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+        // Wait until WebSocket is ready before requesting code
+        const getCodePromise = () => new Promise((resolve, reject) => {
+            let codeSent = false;
 
-            if (!res.headersSent) {
-                return res.status(200).json({ code: formattedCode });
-            }
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, qr } = update;
+
+                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
+                    codeSent = true;
+                    try {
+                        await delay(3000); // Buffer for Vercel socket handshake
+                        const code = await sock.requestPairingCode(num);
+                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+                        resolve(formattedCode);
+                    } catch (err) {
+                        reject(err);
+                    }
+                }
+            });
+
+            setTimeout(() => {
+                if (!codeSent) reject(new Error("Connection Timeout - Please click Generate again"));
+            }, 11000);
+        });
+
+        const code = await getCodePromise();
+
+        if (!res.headersSent) {
+            return res.status(200).json({ code });
         }
+
     } catch (err) {
         console.error("Vercel Pairing Error:", err);
         const errMsg = err?.message || err?.toString() || "Unknown Error";
