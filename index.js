@@ -19,7 +19,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Promise-based Vercel Pairing Route
+// Direct Stable Vercel Pairing Endpoint
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -32,8 +32,7 @@ app.get('/pair', async (req, res) => {
             default: makeWASocket,
             useMultiFileAuthState,
             delay,
-            makeCacheableSignalKeyStore,
-            fetchLatestBaileysVersion
+            makeCacheableSignalKeyStore
         } = require('@whiskeysockets/baileys');
 
         if (fs.existsSync(sessionDir)) {
@@ -41,7 +40,9 @@ app.get('/pair', async (req, res) => {
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        const { version } = await fetchLatestBaileysVersion();
+
+        // Hardcoded stable WA Web Version to prevent Vercel fetch timeouts
+        const version = [2, 3000, 1017531202];
 
         const sock = makeWASocket({
             version,
@@ -56,38 +57,21 @@ app.get('/pair', async (req, res) => {
 
         sock.ev.on('creds.update', saveCreds);
 
-        // Promise Wrapper for Vercel Serverless Execution
-        const getPairingCodePromise = () => new Promise((resolve, reject) => {
-            let codeSent = false;
+        if (!sock.authState.creds.registered) {
+            await delay(2000);
+            const code = await sock.requestPairingCode(num);
+            const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
 
-            sock.ev.on('connection.update', async (update) => {
-                const { connection, qr } = update;
-
-                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
-                    codeSent = true;
-                    try {
-                        await delay(3000); // Wait 3s for serverless socket handshake
-                        const code = await sock.requestPairingCode(num);
-                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-                        resolve(formattedCode);
-                    } catch (err) {
-                        reject(err);
-                    }
-                }
-            });
-
-            // Fallback timeout for Vercel (8 seconds)
-            setTimeout(() => {
-                if (!codeSent) reject(new Error("Connection Timeout"));
-            }, 8000);
-        });
-
-        const code = await getPairingCodePromise();
-        return res.status(200).json({ code });
-
+            if (!res.headersSent) {
+                return res.status(200).json({ code: formattedCode });
+            }
+        }
     } catch (err) {
         console.error("Vercel Pairing Error:", err);
-        return res.status(500).json({ error: "Failed to generate pairing code. Please try again." });
+        const errMsg = err?.message || err?.toString() || "Unknown Error";
+        if (!res.headersSent) {
+            return res.status(500).json({ error: `Pairing Error: ${errMsg}` });
+        }
     }
 });
 
