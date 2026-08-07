@@ -1,8 +1,19 @@
-const express = require('express');
-const path = require('path');
-const os = require('os');
-const fs = require('fs-extra');
-const pino = require('pino');
+import express from 'express';
+import path from 'path';
+import os from 'os';
+import fs from 'fs-extra';
+import pino from 'pino';
+import { fileURLToPath } from 'url';
+import makeWASocket, {
+    useMultiFileAuthState,
+    delay,
+    makeCacheableSignalKeyStore,
+    fetchLatestBaileysVersion,
+    Browsers
+} from '@whiskeysockets/baileys';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,7 +30,7 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Full Debug Vercel Pairing Endpoint
+// Native ESM Vercel Pairing Endpoint
 app.get('/pair', async (req, res) => {
     let num = req.query.number;
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
@@ -27,28 +38,15 @@ app.get('/pair', async (req, res) => {
     num = num.replace(/[^0-9]/g, '');
     const sessionDir = getSessionDir(num);
 
-    console.log(`\n==================================================`);
-    console.log(`[VERCEL DEBUG] Starting pairing for number: ${num}`);
+    console.log(`\n[ESM PAIR REQUEST] Starting pairing for: ${num}`);
 
     try {
-        const baileys = await import('@whiskeysockets/baileys');
-        const makeWASocket = baileys.default?.default || baileys.default || baileys;
-        const {
-            useMultiFileAuthState,
-            delay,
-            makeCacheableSignalKeyStore,
-            fetchLatestBaileysVersion,
-            Browsers
-        } = baileys;
-
         if (fs.existsSync(sessionDir)) {
-            console.log(`[VERCEL DEBUG] Cleaning session folder: ${sessionDir}`);
             fs.removeSync(sessionDir);
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version } = await fetchLatestBaileysVersion();
-        console.log(`[VERCEL DEBUG] Using WA Web Version: ${version.join('.')}`);
 
         const sock = makeWASocket({
             version,
@@ -61,53 +59,43 @@ app.get('/pair', async (req, res) => {
             browser: Browsers.ubuntu("Chrome")
         });
 
-        sock.ev.on('creds.update', (creds) => {
-            console.log(`[VERCEL CREDS] Credentials updated and saved!`);
-            saveCreds(creds);
-        });
+        sock.ev.on('creds.update', saveCreds);
 
-        let codeSent = false;
+        const getCodePromise = () => new Promise((resolve, reject) => {
+            let codeSent = false;
 
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            console.log(`[VERCEL CONN] State: ${connection}`);
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, qr } = update;
 
-            if (lastDisconnect) {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                console.log(`[VERCEL ERROR] StatusCode: ${statusCode}`);
-                console.log(`[VERCEL ERROR DETAILS]:`, JSON.stringify(lastDisconnect.error, null, 2));
-            }
-
-            if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
-                codeSent = true;
-                try {
-                    console.log(`[VERCEL DEBUG] Requesting Pairing Code from WhatsApp...`);
-                    await delay(3000);
-                    const code = await sock.requestPairingCode(num);
-                    const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-                    
-                    console.log(`[VERCEL CODE SUCCESS] Code: ${formattedCode}`);
-
-                    if (!res.headersSent) {
-                        return res.status(200).json({ code: formattedCode });
-                    }
-                } catch (err) {
-                    console.error(`[VERCEL PAIR ERROR FATAL]:`, err);
-                    if (!res.headersSent) {
-                        return res.status(500).json({ error: `Pairing Error: ${err.message}` });
+                if ((connection === 'connecting' || qr) && !sock.authState.creds.registered && !codeSent) {
+                    codeSent = true;
+                    try {
+                        await delay(3000);
+                        const code = await sock.requestPairingCode(num);
+                        const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+                        resolve(formattedCode);
+                    } catch (err) {
+                        reject(err);
                     }
                 }
-            }
+            });
 
-            if (connection === 'open') {
-                console.log(`\n🎉 [VERCEL SUCCESS] WhatsApp Device Linked Successfully for ${num}!\n`);
-            }
+            setTimeout(() => {
+                if (!codeSent) reject(new Error("Connection Timeout - Retry again"));
+            }, 10000);
         });
 
-    } catch (err) {
-        console.error(`[VERCEL SERVER FATAL ERROR]:`, err);
+        const code = await getCodePromise();
+
         if (!res.headersSent) {
-            return res.status(500).json({ error: `Server Error: ${err.message}` });
+            return res.status(200).json({ code });
+        }
+
+    } catch (err) {
+        console.error("Vercel ESM Pairing Error:", err);
+        const errMsg = err?.message || err?.toString() || "Unknown Error";
+        if (!res.headersSent) {
+            return res.status(500).json({ error: `Pairing Error: ${errMsg}` });
         }
     }
 });
@@ -118,4 +106,4 @@ if (!process.env.VERCEL) {
     });
 }
 
-module.exports = app;
+export default app;

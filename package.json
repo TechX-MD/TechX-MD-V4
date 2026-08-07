@@ -1,6 +1,7 @@
 {
   "name": "techx-md-v4",
   "version": "1.0.0",
+  "type": "module",
   "description": "TechX-MD V4 Control Panel",
   "main": "index.js",
   "scripts": {
