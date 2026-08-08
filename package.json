@@ -2,10 +2,9 @@
   "name": "techx-md-v4",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "api/index.js",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.18",
-    "express": "^4.19.2",
     "fs-extra": "^11.2.0",
     "pino": "^9.1.0"
   }
