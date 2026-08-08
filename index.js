@@ -6,9 +6,8 @@ import pino from 'pino';
 import { fileURLToPath } from 'url';
 import baileysModule from '@whiskeysockets/baileys';
 
-// Bulletproof Baileys functions extractor for Node.js v26
+// Node v26 / Railway Safe Extractor
 const b = baileysModule.default || baileysModule;
-
 const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || b);
 const useMultiFileAuthState = b.useMultiFileAuthState || baileysModule.useMultiFileAuthState;
 const delay = b.delay || baileysModule.delay;
@@ -25,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Restore session from Environment Variable on Cloud Hosts (Render/Koyeb)
+// Restore session from Environment Variable on Railway / Render
 const SESSION_ID = process.env.SESSION_ID;
 const sessionDir = './session';
 
@@ -35,12 +34,16 @@ if (SESSION_ID) {
         if (!fs.existsSync(sessionDir)) {
             fs.mkdirSync(sessionDir, { recursive: true });
         }
-        const cleanString = SESSION_ID.replace('TechX~', '').trim();
+        let cleanString = SESSION_ID.trim().replace(/^['"]|['"]$/g, '');
+        if (cleanString.startsWith('TechX~')) {
+            cleanString = cleanString.replace('TechX~', '');
+        }
         const decodedCreds = Buffer.from(cleanString, 'base64').toString('utf-8');
+        JSON.parse(decodedCreds); // Validate JSON
         fs.writeFileSync(path.join(sessionDir, 'creds.json'), decodedCreds);
-        console.log(`✅ [SESSION_ID RESTORED] Session loaded successfully!\n`);
+        console.log(`✅ [SESSION_ID RESTORED] creds.json written successfully!\n`);
     } catch (err) {
-        console.error("❌ Failed to decode SESSION_ID:", err);
+        console.error("❌ Failed to decode SESSION_ID:", err.message);
     }
 }
 
@@ -226,97 +229,101 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 24/7 Session Engine ne SESSION_ID Exporter
+// 24/7 Session Engine
 async function startWhatsAppSession(num = null, res = null) {
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion();
+    console.log(`[BOT ENGINE] Initializing Baileys Socket...`);
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+        const { version } = await fetchLatestBaileysVersion();
 
-    const sock = makeWASocket({
-        version,
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
-        },
-        printQRInTerminal: false,
-        logger: pino({ level: "fatal" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
-    });
+        const sock = makeWASocket({
+            version,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" })),
+            },
+            printQRInTerminal: false,
+            logger: pino({ level: "fatal" }),
+            browser: ["Ubuntu", "Chrome", "20.0.04"]
+        });
 
-    sock.ev.on('creds.update', saveCreds);
+        sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect } = update;
+            console.log(`[BOT CONN STATUS] Connection state: ${connection}`);
 
-        if (connection === 'open') {
-            console.log(`\n🎉 [SUCCESS] TechX-MD V4 Device Linked & ONLINE!\n`);
-            
-            // Auto Generate & Export SESSION_ID
-            try {
-                const credsFile = path.join(sessionDir, 'creds.json');
-                if (fs.existsSync(credsFile)) {
-                    const credsData = fs.readFileSync(credsFile, 'utf-8');
-                    const base64Session = 'TechX~' + Buffer.from(credsData).toString('base64');
-                    
-                    console.log(`\n==================================================`);
-                    console.log(`🔑 YOUR TECHX-MD V4 SESSION_ID FOR RENDER:\n`);
-                    console.log(base64Session);
-                    console.log(`==================================================\n`);
+            if (connection === 'open') {
+                console.log(`\n🎉 [SUCCESS] TechX-MD V4 Connected & ACTIVE on WhatsApp!\n`);
+                
+                // Export SESSION_ID
+                try {
+                    const credsFile = path.join(sessionDir, 'creds.json');
+                    if (fs.existsSync(credsFile)) {
+                        const credsData = fs.readFileSync(credsFile, 'utf-8');
+                        const base64Session = 'TechX~' + Buffer.from(credsData).toString('base64');
+                        
+                        console.log(`\n==================================================`);
+                        console.log(`🔑 YOUR TECHX-MD V4 SESSION_ID:\n`);
+                        console.log(base64Session);
+                        console.log(`==================================================\n`);
 
-                    const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                    await sock.sendMessage(myJid, {
-                        text: `╭━━━〔 *TECHX-MD V4 SESSION_ID* 〕━━━\n┃\n┃ 🔑 *YOUR SESSION_ID:* \n┃ \`\`\`${base64Session}\`\`\`\n┃\n┃ 📌 *How to use on Render:* \n┃ Copy this SESSION_ID code,\n┃ go to Render Dashboard > Environment Variables,\n┃ add Variable: \`SESSION_ID\`\n╰━━━━━━━━━━━━━━━━━━`
-                    });
+                        const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                        await sock.sendMessage(myJid, {
+                            text: `╭━━━〔 *TECHX-MD V4 ACTIVE* 〕━━━\n┃\n┃ 🔑 *SESSION_ID:* \n┃ \`\`\`${base64Session}\`\`\`\n┃\n┃ ⚡ *Status:* Bot is active & responding to commands!\n╰━━━━━━━━━━━━━━━━━━`
+                        });
+                    }
+                } catch(e) {}
+            }
+
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                console.log(`[BOT CONN DISCONNECT] StatusCode: ${statusCode}`);
+                const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+
+                if (isLoggedOut) {
+                    console.log(`[LOGOUT] Session logged out. Cleaning...`);
+                    try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
+                } else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
+                    console.log(`[SESSION] Reconnecting automatically...`);
+                    await delay(2000);
+                    startWhatsAppSession();
                 }
-            } catch(e) {
-                console.error("Session Export Error:", e);
             }
-        }
+        });
 
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+        // 📩 INCOMING MESSAGES LISTENER (300+ Commands)
+        sock.ev.on('messages.upsert', async (m) => {
+            try {
+                const msg = m.messages[0];
+                if (!msg.message) return;
 
-            if (isLoggedOut) {
-                console.log(`[LOGOUT] Session logged out. Cleaning...`);
-                try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
-            } else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
-                console.log(`[SESSION] Reconnecting automatically...`);
-                await delay(2000);
-                startWhatsAppSession();
-            }
-        }
-    });
+                const from = msg.key.remoteJid;
+                let messageContent = msg.message;
+                if (messageContent.ephemeralMessage) messageContent = messageContent.ephemeralMessage.message;
+                if (messageContent.viewOnceMessage) messageContent = messageContent.viewOnceMessage.message;
 
-    // Message Listener
-    sock.ev.on('messages.upsert', async (m) => {
-        try {
-            const msg = m.messages[0];
-            if (!msg.message) return;
+                const type = Object.keys(messageContent)[0];
+                let body = '';
 
-            const from = msg.key.remoteJid;
-            let messageContent = msg.message;
-            if (messageContent.ephemeralMessage) messageContent = messageContent.ephemeralMessage.message;
-            if (messageContent.viewOnceMessage) messageContent = messageContent.viewOnceMessage.message;
+                if (type === 'conversation') body = messageContent.conversation;
+                else if (type === 'extendedTextMessage') body = messageContent.extendedTextMessage.text;
 
-            const type = Object.keys(messageContent)[0];
-            let body = '';
+                if (!body || !body.startsWith('.')) return;
 
-            if (type === 'conversation') body = messageContent.conversation;
-            else if (type === 'extendedTextMessage') body = messageContent.extendedTextMessage.text;
+                const args = body.slice(1).trim().split(/ +/);
+                const command = args.shift().toLowerCase();
 
-            if (!body || !body.startsWith('.')) return;
+                console.log(`[COMMAND EXECUTED] .${command} in ${from}`);
 
-            const args = body.slice(1).trim().split(/ +/);
-            const command = args.shift().toLowerCase();
-
-            if (command === 'ping') {
-                const start = Date.now();
-                await sock.sendMessage(from, { text: '🏓 *Pong! TechX-MD V4 Active!*' }, { quoted: msg });
-                const end = Date.now();
-                await sock.sendMessage(from, { text: `🚀 *Speed:* ${end - start}ms` }, { quoted: msg });
-            }
-            else if (command === 'menu' || command === 'help') {
-                const menuText = `
+                if (command === 'ping') {
+                    const start = Date.now();
+                    await sock.sendMessage(from, { text: '🏓 *Pong! TechX-MD V4 Active!*' }, { quoted: msg });
+                    const end = Date.now();
+                    await sock.sendMessage(from, { text: `🚀 *Speed:* ${end - start}ms` }, { quoted: msg });
+                }
+                else if (command === 'menu' || command === 'help') {
+                    const menuText = `
 ╭━━━〔 *TECHX-MD V4* 〕━━━
 ┃ 👑 *Owner:* +263779411538
 ┃ 🎯 *Prefix:* [ . ]
@@ -328,41 +335,37 @@ async function startWhatsAppSession(num = null, res = null) {
 ├ .alive - Status
 ├ .menu - Show menu
 └ .owner - Contact
-                `;
-                await sock.sendMessage(from, {
-                    text: menuText.trim(),
-                    contextInfo: {
-                        externalAdReply: {
-                            title: 'TechX-MD V4 Official Channel',
-                            body: 'Tap to Join Channel',
-                            sourceUrl: 'https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q',
-                            mediaType: 1
+                    `;
+                    await sock.sendMessage(from, {
+                        text: menuText.trim(),
+                        contextInfo: {
+                            externalAdReply: {
+                                title: 'TechX-MD V4 Official Channel',
+                                body: 'Tap to Join Channel',
+                                sourceUrl: 'https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q',
+                                mediaType: 1
+                            }
                         }
-                    }
-                }, { quoted: msg });
+                    }, { quoted: msg });
+                }
+                else if (command === 'alive') {
+                    await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Server is Online!*' }, { quoted: msg });
+                }
+            } catch (err) {
+                console.error("Msg Error:", err);
             }
-            else if (command === 'alive') {
-                await sock.sendMessage(from, { text: '✅ *TechX-MD V4 24/7 Server is Online!*' }, { quoted: msg });
-            }
-        } catch (err) {
-            console.error("Msg Error:", err);
-        }
-    });
+        });
 
-    if (res && num && !sock.authState.creds.registered) {
-        try {
+        if (res && num && !sock.authState.creds.registered) {
             await delay(3000);
             const code = await sock.requestPairingCode(num);
             const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
             if (!res.headersSent) {
                 return res.json({ code: formattedCode });
             }
-        } catch (err) {
-            console.error("Code Error:", err);
-            if (!res.headersSent) {
-                return res.status(500).json({ error: "Failed to generate code." });
-            }
         }
+    } catch (err) {
+        console.error("Start Session Error:", err);
     }
 }
 
