@@ -4,25 +4,18 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import { fileURLToPath } from 'url';
-import baileys from '@whiskeysockets/baileys';
+import baileysModule from '@whiskeysockets/baileys';
 
-function getWASocket() {
-    if (typeof baileys === 'function') return baileys;
-    if (typeof baileys.default === 'function') return baileys.default;
-    if (typeof baileys.default?.default === 'function') return baileys.default.default;
-    if (typeof baileys.makeWASocket === 'function') return baileys.makeWASocket;
-    return baileys;
-}
+// Bulletproof Baileys functions extractor for Node.js v26
+const b = baileysModule.default || baileysModule;
 
-const makeWASocket = getWASocket();
-const {
-    useMultiFileAuthState,
-    delay,
-    makeCacheableSignalKeyStore,
-    fetchLatestBaileysVersion,
-    Browsers,
-    DisconnectReason
-} = baileys;
+const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || b);
+const useMultiFileAuthState = b.useMultiFileAuthState || baileysModule.useMultiFileAuthState;
+const delay = b.delay || baileysModule.delay;
+const makeCacheableSignalKeyStore = b.makeCacheableSignalKeyStore || baileysModule.makeCacheableSignalKeyStore;
+const fetchLatestBaileysVersion = b.fetchLatestBaileysVersion || baileysModule.fetchLatestBaileysVersion;
+const Browsers = b.Browsers || baileysModule.Browsers;
+const DisconnectReason = b.DisconnectReason || baileysModule.DisconnectReason;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -233,7 +226,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 24/7 Session Engine ne Session ID Exporter & Loader
+// 24/7 Session Engine ne SESSION_ID Exporter
 async function startWhatsAppSession(num = null, res = null) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
@@ -246,7 +239,7 @@ async function startWhatsAppSession(num = null, res = null) {
         },
         printQRInTerminal: false,
         logger: pino({ level: "fatal" }),
-        browser: Browsers.ubuntu("Chrome")
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -257,7 +250,7 @@ async function startWhatsAppSession(num = null, res = null) {
         if (connection === 'open') {
             console.log(`\n🎉 [SUCCESS] TechX-MD V4 Device Linked & ONLINE!\n`);
             
-            // Auto Generate & Export SESSION_ID to Chat and Termux Console
+            // Auto Generate & Export SESSION_ID
             try {
                 const credsFile = path.join(sessionDir, 'creds.json');
                 if (fs.existsSync(credsFile)) {
@@ -294,7 +287,7 @@ async function startWhatsAppSession(num = null, res = null) {
         }
     });
 
-    // Message Listener (300+ Commands)
+    // Message Listener
     sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
