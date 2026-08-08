@@ -218,17 +218,21 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 24/7 Persistent Session Engine
+// 24/7 Session Engine ne Full Debug Logger
 async function startWhatsAppSession(num, res = null) {
     const sessionDir = getSessionDir(num);
 
-    // 🔴 FIX: Clean old session directory BEFORE loading multi-file auth state!
+    console.log(`\n==================================================`);
+    console.log(`[RENDER DEBUG] Starting session setup for: ${num}`);
+
     if (res && fs.existsSync(sessionDir)) {
+        console.log(`[RENDER DEBUG] Wiping old session directory: ${sessionDir}`);
         try { fs.removeSync(sessionDir); } catch(e) {}
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
+    console.log(`[RENDER DEBUG] Using WA Web Version: ${version.join('.')}`);
 
     const sock = makeWASocket({
         version,
@@ -238,14 +242,28 @@ async function startWhatsAppSession(num, res = null) {
         },
         printQRInTerminal: false,
         logger: pino({ level: "fatal" }),
-        browser: ["Mac OS", "Chrome", "10.0.00"],
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         markOnlineOnConnect: false
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', (creds) => {
+        console.log(`[RENDER CREDS] Credentials updated! Saving to disk...`);
+        saveCreds(creds);
+    });
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        console.log(`[RENDER CONN STATUS ${num}] Connection: ${connection} | QR: ${!!qr}`);
+
+        if (lastDisconnect) {
+            const error = lastDisconnect?.error;
+            const statusCode = error?.output?.statusCode;
+            console.log(`\n❌ [RENDER DISCONNECT ERROR ${num}] StatusCode: ${statusCode}`);
+            console.log(`❌ [ERROR MSG]:`, error?.message);
+            console.log(`❌ [ERROR JSON]:`, JSON.stringify(error, null, 2));
+            console.log(`==================================================\n`);
+        }
 
         if (connection === 'open') {
             console.log(`\n🎉 [SUCCESS] Device Linked Successfully for ${num}! TechX-MD V4 is ONLINE!\n`);
@@ -266,7 +284,7 @@ async function startWhatsAppSession(num, res = null) {
         }
     });
 
-    // Message Listener (300+ Commands)
+    // Message Listener
     sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
@@ -287,6 +305,8 @@ async function startWhatsAppSession(num, res = null) {
 
             const args = body.slice(1).trim().split(/ +/);
             const command = args.shift().toLowerCase();
+
+            console.log(`[COMMAND RUN] .${command} in ${from}`);
 
             if (command === 'ping') {
                 const start = Date.now();
@@ -330,14 +350,17 @@ async function startWhatsAppSession(num, res = null) {
 
     if (res && !sock.authState.creds.registered) {
         try {
+            console.log(`[RENDER DEBUG] Waiting 3s before requesting pairing code...`);
             await delay(3000);
             const code = await sock.requestPairingCode(num);
             const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+            console.log(`[RENDER CODE GENERATED] ${formattedCode}`);
+
             if (!res.headersSent) {
                 return res.json({ code: formattedCode });
             }
         } catch (err) {
-            console.error("Code Error:", err);
+            console.error("Code Request Error:", err);
             if (!res.headersSent) {
                 return res.status(500).json({ error: "Failed to generate code." });
             }
@@ -350,6 +373,9 @@ app.get('/pair', async (req, res) => {
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
 
     num = num.replace(/[^0-9]/g, '');
+    const sessionDir = getSessionDir(num);
+
+    if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir);
     startWhatsAppSession(num, res);
 });
 
