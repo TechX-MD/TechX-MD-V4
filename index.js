@@ -4,14 +4,26 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import { fileURLToPath } from 'url';
-import makeWASocket, {
+import baileys from '@whiskeysockets/baileys';
+
+// Bulletproof WASocket function extractor for Node 20/22/24
+function getWASocket() {
+    if (typeof baileys === 'function') return baileys;
+    if (typeof baileys.default === 'function') return baileys.default;
+    if (typeof baileys.default?.default === 'function') return baileys.default.default;
+    if (typeof baileys.makeWASocket === 'function') return baileys.makeWASocket;
+    return baileys;
+}
+
+const makeWASocket = getWASocket();
+const {
     useMultiFileAuthState,
     delay,
     makeCacheableSignalKeyStore,
     fetchLatestBaileysVersion,
     Browsers,
     DisconnectReason
-} from '@whiskeysockets/baileys';
+} = baileys;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
