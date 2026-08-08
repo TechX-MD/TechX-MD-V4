@@ -38,7 +38,7 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>TechX-MD V4 | Web Pair Panel</title>
+        <title>TechX-MD V4 | Control Panel</title>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
@@ -82,7 +82,7 @@ app.get('/', (req, res) => {
                 <div class="zim-clock-badge"><div class="live-dot"></div><span id="zimClock">--:--:-- CAT</span></div>
             </div>
 
-            <div class="main-title">CYBER <span>WEB PAIR PANEL</span></div>
+            <div class="main-title">CYBER <span>CONTROL PANEL</span></div>
 
             <div class="card">
                 <div class="card-title"><i class="fa-solid fa-key"></i> Link Phone Number</div>
@@ -211,7 +211,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Dynamic Web Pairing Session Engine (No reconnect loops during code entry)
+// Dynamic Web Pairing Session Engine
 async function createPairingSocket(num, res) {
     const sessionDir = getSessionDir(num);
 
@@ -231,7 +231,7 @@ async function createPairingSocket(num, res) {
             },
             printQRInTerminal: false,
             logger: pino({ level: "fatal" }),
-            browser: ["Ubuntu", "Chrome", "20.0.04"],
+            browser: Browsers.ubuntu("Chrome"),
             markOnlineOnConnect: true
         });
 
@@ -246,8 +246,6 @@ async function createPairingSocket(num, res) {
 
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                
-                // Reconnect ONLY after device linking completes (Status 515)
                 if (statusCode === 515) {
                     console.log(`[SESSION ${num}] Handshake complete (515) - Connecting bot engine...`);
                     await delay(2000);
@@ -259,7 +257,7 @@ async function createPairingSocket(num, res) {
             }
         });
 
-        // 📩 MESSAGE LISTENER (300+ COMMANDS)
+        // 📩 INCOMING MESSAGES LISTENER (300+ COMMANDS)
         sock.ev.on('messages.upsert', async (m) => {
             try {
                 const msg = m.messages[0];
@@ -295,28 +293,119 @@ async function createPairingSocket(num, res) {
 ┃ 👑 *Owner:* +263779411538
 ┃ 🎯 *Prefix:* [ . ]
 ┃ ⚡ *Status:* Online & Active
+┃ 📟 *Engine:* Baileys MD V4
 ╰━━━━━━━━━━━━━━━━━━
 
-🤖 *COMMANDS:*
-├ .ping - Check speed
-├ .alive - Status
-├ .menu - Show menu
-└ .owner - Contact
+╭━━━〔 🤖 *MAIN MENU* 〕━━━
+├ .ping - Check response speed
+├ .alive - Check active status
+├ .menu - Display main menu
+└ .owner - Contact bot owner
+
+╭━━━〔 📥 *DOWNLOADERS* 〕━━━
+├ .play <song name>
+├ .song <title/link>
+├ .video <link>
+├ .ytmp3 <link>
+├ .ytmp4 <link>
+├ .tiktok <link>
+├ .ig <link>
+├ .fb <link>
+├ .spotify <song>
+├ .apk <app name>
+├ .mediafire <link>
+└ .pinterest <search>
+
+╭━━━〔 🤖 *AI & CHAT* 〕━━━
+├ .ai <question>
+├ .gpt <question>
+├ .gemini <query>
+├ .dalle <prompt>
+├ .imagine <prompt>
+├ .tts <text>
+└ .removebg <image>
+
+╭━━━〔 👥 *GROUP TOOLS* 〕━━━
+├ .kick @user
+├ .add <number>
+├ .promote @user
+├ .demote @user
+├ .mute / .unmute
+├ .tagall <text>
+├ .hidetag <text>
+├ .link (Get Group Link)
+├ .revoke (Reset Link)
+├ .antilink <on/off>
+├ .setname <new name>
+└ .setdesc <text>
+
+╭━━━〔 🎨 *STICKER & MEDIA* 〕━━━
+├ .sticker / .s
+├ .toimg (Sticker to Image)
+├ .tomp3 (Video to Audio)
+├ .tovideo (Gif to Video)
+├ .blur (Blur Image)
+├ .circle (Crop Circle)
+└ .meme <top|bottom>
+
+╭━━━〔 🔍 *SEARCH & UTILS* 〕━━━
+├ .google <query>
+├ .wiki <topic>
+├ .lyrics <song>
+├ .weather <city>
+├ .translate <text>
+├ .qr <text/link>
+├ .shortlink <url>
+└ .ssweb <url>
+
+╭━━━〔 🎮 *FUN & GAMES* 〕━━━
+├ .truth
+├ .dare
+├ .tictactoe
+├ .joke
+├ .quote
+├ .fact
+└ .hack @user
+
+╭━━━〔 👑 *OWNER MENU* 〕━━━
+├ .restart
+├ .broadcast <text>
+├ .block @user
+├ .unblock @user
+├ .setprefix <symbol>
+└ .mode <public/self>
+╰━━━━━━━━━━━━━━━━━━
+
+*Powered by TechX-MD V4 Engine*
                     `;
+
+                    // Send Menu with Large HD Channel Image Banner Card
                     await sock.sendMessage(from, {
                         text: menuText.trim(),
                         contextInfo: {
+                            forwardingScore: 999,
+                            isForwarded: true,
+                            forwardedNewsletterMessageInfo: {
+                                newsletterJid: '120363398971844991@newsletter',
+                                newsletterName: 'TechX-MD V4 Official Channel',
+                                serverMessageId: 1
+                            },
                             externalAdReply: {
-                                title: 'TechX-MD V4 Official Channel',
-                                body: 'Tap to Join Channel',
+                                title: 'TECHX-MD V4 OFFICIAL CHANNEL',
+                                body: 'Tap to View & Join Our Official Channel',
+                                thumbnailUrl: 'https://files.catbox.moe/w8q394.jpg',
                                 sourceUrl: 'https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q',
-                                mediaType: 1
+                                mediaType: 1,
+                                renderLargerThumbnail: true
                             }
                         }
                     }, { quoted: msg });
                 }
                 else if (command === 'alive') {
                     await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Server is Online!*' }, { quoted: msg });
+                }
+                else if (command === 'owner') {
+                    await sock.sendMessage(from, { text: '📲 *TechX-MD V4 Owner:* +263779411538' }, { quoted: msg });
                 }
             } catch (err) {
                 console.error("Msg Error:", err);
