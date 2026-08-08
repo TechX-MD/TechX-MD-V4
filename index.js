@@ -4,18 +4,18 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import { fileURLToPath } from 'url';
-import baileysModule from '@whiskeysockets/baileys';
+import * as baileys from '@whiskeysockets/baileys';
 
-// Universal Interop Extractor for Railway, Render, and Termux
-const baileys = baileysModule.default?.default || baileysModule.default || baileysModule;
+// Universal Safe Import Extractor for Railway, Render, and Termux
+const b = baileys.default || baileys;
 
-const makeWASocket = typeof baileys === 'function' ? baileys : (baileys.default || baileys.makeWASocket || baileys);
-const useMultiFileAuthState = baileys.useMultiFileAuthState || baileysModule.useMultiFileAuthState || baileysModule.default?.useMultiFileAuthState;
-const delay = baileys.delay || baileysModule.delay || baileysModule.default?.delay;
-const makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore || baileysModule.makeCacheableSignalKeyStore || baileysModule.default?.makeCacheableSignalKeyStore;
-const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion || baileysModule.fetchLatestBaileysVersion || baileysModule.default?.fetchLatestBaileysVersion;
-const Browsers = baileys.Browsers || baileysModule.Browsers || baileysModule.default?.Browsers;
-const DisconnectReason = baileys.DisconnectReason || baileysModule.DisconnectReason || baileysModule.default?.DisconnectReason;
+const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || baileys.makeWASocket);
+const useMultiFileAuthState = b.useMultiFileAuthState || baileys.useMultiFileAuthState;
+const delay = b.delay || baileys.delay;
+const makeCacheableSignalKeyStore = b.makeCacheableSignalKeyStore || baileys.makeCacheableSignalKeyStore;
+const fetchLatestBaileysVersion = b.fetchLatestBaileysVersion || baileys.fetchLatestBaileysVersion;
+const Browsers = b.Browsers || baileys.Browsers;
+const DisconnectReason = b.DisconnectReason || baileys.DisconnectReason;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,30 +25,11 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Restore session from Environment Variable on Cloud Hosts (Railway/Render)
-const SESSION_ID = process.env.SESSION_ID;
-const sessionDir = './session';
-
-if (SESSION_ID) {
-    console.log(`\n🔑 [SESSION_ID DETECTED] Restoring session credentials...`);
-    try {
-        if (!fs.existsSync(sessionDir)) {
-            fs.mkdirSync(sessionDir, { recursive: true });
-        }
-        let cleanString = SESSION_ID.trim().replace(/^['"]|['"]$/g, '');
-        if (cleanString.startsWith('TechX~')) {
-            cleanString = cleanString.replace('TechX~', '');
-        }
-        const decodedCreds = Buffer.from(cleanString, 'base64').toString('utf-8');
-        JSON.parse(decodedCreds); // Validate JSON format
-        fs.writeFileSync(path.join(sessionDir, 'creds.json'), decodedCreds);
-        console.log(`✅ [SESSION_ID RESTORED] creds.json written successfully!\n`);
-    } catch (err) {
-        console.error("❌ Failed to decode SESSION_ID:", err.message);
-    }
+function getSessionDir(num) {
+    return path.join('./', `session_${num}`);
 }
 
-// Serve Cyber HTML UI
+// Serve Cyber HTML Web Pair Control Panel
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(`
@@ -57,7 +38,7 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>TechX-MD V4 | Control Panel</title>
+        <title>TechX-MD V4 | Web Pair Panel</title>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
@@ -101,7 +82,7 @@ app.get('/', (req, res) => {
                 <div class="zim-clock-badge"><div class="live-dot"></div><span id="zimClock">--:--:-- CAT</span></div>
             </div>
 
-            <div class="main-title">CYBER <span>CONTROL PANEL</span></div>
+            <div class="main-title">CYBER <span>WEB PAIR PANEL</span></div>
 
             <div class="card">
                 <div class="card-title"><i class="fa-solid fa-key"></i> Link Phone Number</div>
@@ -230,9 +211,14 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 24/7 Session Engine
-async function startWhatsAppSession(num = null, res = null) {
-    console.log(`[BOT ENGINE] Initializing Baileys Socket...`);
+// Web Pairing Session Engine
+async function createPairingSocket(num, res) {
+    const sessionDir = getSessionDir(num);
+
+    if (fs.existsSync(sessionDir)) {
+        try { fs.removeSync(sessionDir); } catch(e) {}
+    }
+
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version } = await fetchLatestBaileysVersion();
@@ -245,55 +231,33 @@ async function startWhatsAppSession(num = null, res = null) {
             },
             printQRInTerminal: false,
             logger: pino({ level: "fatal" }),
-            browser: ["Ubuntu", "Chrome", "20.0.04"]
+            browser: Browsers.ubuntu("Chrome"),
+            markOnlineOnConnect: true
         });
 
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
-            console.log(`[BOT CONN STATUS] Connection state: ${connection}`);
 
             if (connection === 'open') {
-                console.log(`\n🎉 [SUCCESS] TechX-MD V4 Connected & ACTIVE on WhatsApp!\n`);
-                
-                // Export SESSION_ID
-                try {
-                    const credsFile = path.join(sessionDir, 'creds.json');
-                    if (fs.existsSync(credsFile)) {
-                        const credsData = fs.readFileSync(credsFile, 'utf-8');
-                        const base64Session = 'TechX~' + Buffer.from(credsData).toString('base64');
-                        
-                        console.log(`\n==================================================`);
-                        console.log(`🔑 YOUR TECHX-MD V4 SESSION_ID:\n`);
-                        console.log(base64Session);
-                        console.log(`==================================================\n`);
-
-                        const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-                        await sock.sendMessage(myJid, {
-                            text: `╭━━━〔 *TECHX-MD V4 ACTIVE* 〕━━━\n┃\n┃ 🔑 *SESSION_ID:* \n┃ \`\`\`${base64Session}\`\`\`\n┃\n┃ ⚡ *Status:* Bot is active & responding to commands!\n╰━━━━━━━━━━━━━━━━━━`
-                        });
-                    }
-                } catch(e) {}
+                console.log(`\n🎉 [SUCCESS] Web Pairing Successful for ${num}! TechX-MD V4 is ONLINE!\n`);
             }
 
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                console.log(`[BOT CONN DISCONNECT] StatusCode: ${statusCode}`);
-                const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
-
-                if (isLoggedOut) {
-                    console.log(`[LOGOUT] Session logged out. Cleaning...`);
-                    try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
-                } else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
-                    console.log(`[SESSION] Reconnecting automatically...`);
+                if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
+                    console.log(`[SESSION ${num}] Reconnecting automatically...`);
                     await delay(2000);
-                    startWhatsAppSession();
+                    createPairingSocket(num, null);
+                } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                    console.log(`[LOGOUT] Number ${num} logged out. Deleting session...`);
+                    try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
                 }
             }
         });
 
-        // 📩 INCOMING MESSAGES LISTENER (300+ Commands)
+        // 📩 MESSAGE LISTENER (300+ COMMANDS)
         sock.ev.on('messages.upsert', async (m) => {
             try {
                 const msg = m.messages[0];
@@ -357,16 +321,21 @@ async function startWhatsAppSession(num = null, res = null) {
             }
         });
 
-        if (res && num && !sock.authState.creds.registered) {
+        if (res && !sock.authState.creds.registered) {
             await delay(3000);
             const code = await sock.requestPairingCode(num);
             const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
+            console.log(`[WEB PAIR CODE GENERATED] ${formattedCode}`);
             if (!res.headersSent) {
                 return res.json({ code: formattedCode });
             }
         }
-    } catch(err) {
-        console.error("Start Session Error:", err);
+
+    } catch (err) {
+        console.error("Pairing Error:", err);
+        if (res && !res.headersSent) {
+            return res.status(500).json({ error: "Failed to generate pairing code." });
+        }
     }
 }
 
@@ -375,15 +344,19 @@ app.get('/pair', async (req, res) => {
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
 
     num = num.replace(/[^0-9]/g, '');
-    if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir);
-    startWhatsAppSession(num, res);
+    createPairingSocket(num, res);
 });
 
-// Auto-start session if SESSION_ID is set or session folder exists
-if (fs.existsSync(sessionDir) || SESSION_ID) {
-    startWhatsAppSession();
-}
+// Auto-restart existing web sessions
+try {
+    const existingSessions = fs.readdirSync('./').filter(f => f.startsWith('session_'));
+    existingSessions.forEach(sDir => {
+        const num = sDir.replace('session_', '');
+        console.log(`[AUTO-RESTART] Restoring session for ${num}...`);
+        createPairingSocket(num, null);
+    });
+} catch(e) {}
 
 app.listen(PORT, () => {
-    console.log(`\n🚀 TechX-MD V4 24/7 Server running on port ${PORT}\n`);
+    console.log(`\n🚀 TechX-MD V4 Web Pair Control Panel running on port ${PORT}\n`);
 });
