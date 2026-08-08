@@ -32,8 +32,23 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-function getSessionDir(num) {
-    return path.join('./', `session_${num}`);
+// Restore session from Environment Variable on Cloud Hosts (Render/Koyeb)
+const SESSION_ID = process.env.SESSION_ID;
+const sessionDir = './session';
+
+if (SESSION_ID) {
+    console.log(`\n🔑 [SESSION_ID DETECTED] Restoring session credentials...`);
+    try {
+        if (!fs.existsSync(sessionDir)) {
+            fs.mkdirSync(sessionDir, { recursive: true });
+        }
+        const cleanString = SESSION_ID.replace('TechX~', '').trim();
+        const decodedCreds = Buffer.from(cleanString, 'base64').toString('utf-8');
+        fs.writeFileSync(path.join(sessionDir, 'creds.json'), decodedCreds);
+        console.log(`✅ [SESSION_ID RESTORED] Session loaded successfully!\n`);
+    } catch (err) {
+        console.error("❌ Failed to decode SESSION_ID:", err);
+    }
 }
 
 // Serve Cyber HTML UI
@@ -218,21 +233,10 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 24/7 Session Engine ne Full Debug Logger
-async function startWhatsAppSession(num, res = null) {
-    const sessionDir = getSessionDir(num);
-
-    console.log(`\n==================================================`);
-    console.log(`[RENDER DEBUG] Starting session setup for: ${num}`);
-
-    if (res && fs.existsSync(sessionDir)) {
-        console.log(`[RENDER DEBUG] Wiping old session directory: ${sessionDir}`);
-        try { fs.removeSync(sessionDir); } catch(e) {}
-    }
-
+// 24/7 Session Engine ne Session ID Exporter & Loader
+async function startWhatsAppSession(num = null, res = null) {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
-    console.log(`[RENDER DEBUG] Using WA Web Version: ${version.join('.')}`);
 
     const sock = makeWASocket({
         version,
@@ -242,31 +246,37 @@ async function startWhatsAppSession(num, res = null) {
         },
         printQRInTerminal: false,
         logger: pino({ level: "fatal" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
-        markOnlineOnConnect: false
+        browser: Browsers.ubuntu("Chrome")
     });
 
-    sock.ev.on('creds.update', (creds) => {
-        console.log(`[RENDER CREDS] Credentials updated! Saving to disk...`);
-        saveCreds(creds);
-    });
+    sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        console.log(`[RENDER CONN STATUS ${num}] Connection: ${connection} | QR: ${!!qr}`);
-
-        if (lastDisconnect) {
-            const error = lastDisconnect?.error;
-            const statusCode = error?.output?.statusCode;
-            console.log(`\n❌ [RENDER DISCONNECT ERROR ${num}] StatusCode: ${statusCode}`);
-            console.log(`❌ [ERROR MSG]:`, error?.message);
-            console.log(`❌ [ERROR JSON]:`, JSON.stringify(error, null, 2));
-            console.log(`==================================================\n`);
-        }
+        const { connection, lastDisconnect } = update;
 
         if (connection === 'open') {
-            console.log(`\n🎉 [SUCCESS] Device Linked Successfully for ${num}! TechX-MD V4 is ONLINE!\n`);
+            console.log(`\n🎉 [SUCCESS] TechX-MD V4 Device Linked & ONLINE!\n`);
+            
+            // Auto Generate & Export SESSION_ID to Chat and Termux Console
+            try {
+                const credsFile = path.join(sessionDir, 'creds.json');
+                if (fs.existsSync(credsFile)) {
+                    const credsData = fs.readFileSync(credsFile, 'utf-8');
+                    const base64Session = 'TechX~' + Buffer.from(credsData).toString('base64');
+                    
+                    console.log(`\n==================================================`);
+                    console.log(`🔑 YOUR TECHX-MD V4 SESSION_ID FOR RENDER:\n`);
+                    console.log(base64Session);
+                    console.log(`==================================================\n`);
+
+                    const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    await sock.sendMessage(myJid, {
+                        text: `╭━━━〔 *TECHX-MD V4 SESSION_ID* 〕━━━\n┃\n┃ 🔑 *YOUR SESSION_ID:* \n┃ \`\`\`${base64Session}\`\`\`\n┃\n┃ 📌 *How to use on Render:* \n┃ Copy this SESSION_ID code,\n┃ go to Render Dashboard > Environment Variables,\n┃ add Variable: \`SESSION_ID\`\n╰━━━━━━━━━━━━━━━━━━`
+                    });
+                }
+            } catch(e) {
+                console.error("Session Export Error:", e);
+            }
         }
 
         if (connection === 'close') {
@@ -274,17 +284,17 @@ async function startWhatsAppSession(num, res = null) {
             const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
             if (isLoggedOut) {
-                console.log(`[LOGOUT] Number ${num} logged out. Deleting session...`);
+                console.log(`[LOGOUT] Session logged out. Cleaning...`);
                 try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
             } else if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
-                console.log(`[SESSION ${num}] Reconnecting automatically...`);
+                console.log(`[SESSION] Reconnecting automatically...`);
                 await delay(2000);
-                startWhatsAppSession(num);
+                startWhatsAppSession();
             }
         }
     });
 
-    // Message Listener
+    // Message Listener (300+ Commands)
     sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
@@ -305,8 +315,6 @@ async function startWhatsAppSession(num, res = null) {
 
             const args = body.slice(1).trim().split(/ +/);
             const command = args.shift().toLowerCase();
-
-            console.log(`[COMMAND RUN] .${command} in ${from}`);
 
             if (command === 'ping') {
                 const start = Date.now();
@@ -348,19 +356,16 @@ async function startWhatsAppSession(num, res = null) {
         }
     });
 
-    if (res && !sock.authState.creds.registered) {
+    if (res && num && !sock.authState.creds.registered) {
         try {
-            console.log(`[RENDER DEBUG] Waiting 3s before requesting pairing code...`);
             await delay(3000);
             const code = await sock.requestPairingCode(num);
             const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
-            console.log(`[RENDER CODE GENERATED] ${formattedCode}`);
-
             if (!res.headersSent) {
                 return res.json({ code: formattedCode });
             }
         } catch (err) {
-            console.error("Code Request Error:", err);
+            console.error("Code Error:", err);
             if (!res.headersSent) {
                 return res.status(500).json({ error: "Failed to generate code." });
             }
@@ -373,18 +378,14 @@ app.get('/pair', async (req, res) => {
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
 
     num = num.replace(/[^0-9]/g, '');
-    const sessionDir = getSessionDir(num);
-
     if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir);
     startWhatsAppSession(num, res);
 });
 
-// Auto-restart saved sessions
-const existingSessions = fs.readdirSync('./').filter(f => f.startsWith('session_'));
-existingSessions.forEach(sDir => {
-    const num = sDir.replace('session_', '');
-    startWhatsAppSession(num);
-});
+// Auto-start session if SESSION_ID is set or session folder exists
+if (fs.existsSync(sessionDir) || SESSION_ID) {
+    startWhatsAppSession();
+}
 
 app.listen(PORT, () => {
     console.log(`\n🚀 TechX-MD V4 24/7 Server running on port ${PORT}\n`);
