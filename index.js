@@ -6,7 +6,6 @@ import pino from 'pino';
 import { fileURLToPath } from 'url';
 import * as baileys from '@whiskeysockets/baileys';
 
-// Universal Safe Import Extractor
 const b = baileys.default || baileys;
 
 const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || baileys.makeWASocket);
@@ -82,7 +81,7 @@ app.get('/', (req, res) => {
                 <div class="zim-clock-badge"><div class="live-dot"></div><span id="zimClock">--:--:-- CAT</span></div>
             </div>
 
-            <div class="main-title">CYBER <span>CONTROL PANEL</span></div>
+            <div class="main-title">CYBER <span>WEB PAIR PANEL</span></div>
 
             <div class="card">
                 <div class="card-title"><i class="fa-solid fa-key"></i> Link Phone Number</div>
@@ -242,6 +241,27 @@ async function createPairingSocket(num, res) {
 
             if (connection === 'open') {
                 console.log(`\n🎉 [SUCCESS] Web Pairing Successful for ${num}! TechX-MD V4 is ONLINE!\n`);
+                
+                // 1. Send Connected Notification Message to User Chat
+                try {
+                    const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                    await sock.sendMessage(myJid, {
+                        text: `🎉 *TechX-MD V4 Connected Successfully!*\n\n🤖 *Bot Status:* Online & Active 24/7\n🎯 *Prefix:* [ . ]\n📢 *Official Channel:* https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q\n\n_Type .menu to view all commands!_`
+                    });
+
+                    // 2. Auto-Join Official WhatsApp Channel
+                    try {
+                        const channelInfo = await sock.newsletterMetadata("invite", "0029Vb8QAZyAe5VyFTerO82q");
+                        if (channelInfo && channelInfo.id) {
+                            await sock.newsletterFollow(channelInfo.id);
+                            console.log(`📢 [AUTO-JOIN] Joined Channel: ${channelInfo.id}`);
+                        }
+                    } catch (cErr) {
+                        console.log("[AUTO-JOIN] Channel process completed.");
+                    }
+                } catch (e) {
+                    console.error("Connection notification error:", e);
+                }
             }
 
             if (connection === 'close') {
@@ -257,7 +277,7 @@ async function createPairingSocket(num, res) {
             }
         });
 
-        // 📩 INCOMING MESSAGES LISTENER (300+ COMMANDS)
+        // 📩 INCOMING MESSAGES LISTENER (300+ COMMANDS & AUTO-REACT)
         sock.ev.on('messages.upsert', async (m) => {
             try {
                 const msg = m.messages[0];
@@ -281,12 +301,26 @@ async function createPairingSocket(num, res) {
 
                 console.log(`[COMMAND EXECUTED] .${command} in ${from}`);
 
+                // ⚡ AUTO RANDOM EMOJI REACTION ON COMMANDS
+                const randomEmojis = ['🤖', '⚡', '🔥', '🚀', '👑', '✨', '🎯', '💎', '🎉', '💥'];
+                const selectedEmoji = randomEmojis[Math.floor(Math.random() * randomEmojis.length)];
+                
+                await sock.sendMessage(from, {
+                    react: {
+                        text: selectedEmoji,
+                        key: msg.key
+                    }
+                });
+
+                // COMMAND 1: .ping
                 if (command === 'ping') {
                     const start = Date.now();
                     await sock.sendMessage(from, { text: '🏓 *Pong! TechX-MD V4 Active!*' }, { quoted: msg });
                     const end = Date.now();
                     await sock.sendMessage(from, { text: `🚀 *Speed:* ${end - start}ms` }, { quoted: msg });
                 }
+
+                // COMMAND 2: .menu
                 else if (command === 'menu' || command === 'help') {
                     const menuText = `
 ╭━━━〔 *TECHX-MD V4* 〕━━━
@@ -379,20 +413,13 @@ async function createPairingSocket(num, res) {
 *Powered by TechX-MD V4 Engine*
                     `;
 
-                    // Send Menu with Large HD Channel Image Banner Card
+                    // Send Menu with Clean Large HD Channel Banner Card
                     await sock.sendMessage(from, {
                         text: menuText.trim(),
                         contextInfo: {
-                            forwardingScore: 999,
-                            isForwarded: true,
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: '120363398971844991@newsletter',
-                                newsletterName: 'TechX-MD V4 Official Channel',
-                                serverMessageId: 1
-                            },
                             externalAdReply: {
                                 title: 'TECHX-MD V4 OFFICIAL CHANNEL',
-                                body: 'Tap to View & Join Our Official Channel',
+                                body: 'Tap to Join & Get Bot Updates',
                                 thumbnailUrl: 'https://files.catbox.moe/w8q394.jpg',
                                 sourceUrl: 'https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q',
                                 mediaType: 1,
@@ -401,12 +428,17 @@ async function createPairingSocket(num, res) {
                         }
                     }, { quoted: msg });
                 }
+
+                // COMMAND 3: .alive
                 else if (command === 'alive') {
                     await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Server is Online!*' }, { quoted: msg });
                 }
+
+                // COMMAND 4: .owner
                 else if (command === 'owner') {
                     await sock.sendMessage(from, { text: '📲 *TechX-MD V4 Owner:* +263779411538' }, { quoted: msg });
                 }
+
             } catch (err) {
                 console.error("Msg Error:", err);
             }
