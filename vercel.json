@@ -1,11 +1,6 @@
 {
-  "functions": {
-    "index.js": {
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
     { "source": "/", "destination": "/public/index.html" },
-    { "source": "/pair", "destination": "/index.js" }
+    { "source": "/pair", "destination": "/api/pair.js" }
   ]
 }
