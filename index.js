@@ -4,6 +4,18 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import { fileURLToPath } from 'url';
+import * as baileys from '@whiskeysockets/baileys';
+
+// Universal Safe Import Extractor
+const b = baileys.default || baileys;
+
+const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || baileys.makeWASocket);
+const useMultiFileAuthState = b.useMultiFileAuthState || baileys.useMultiFileAuthState;
+const delay = b.delay || baileys.delay;
+const makeCacheableSignalKeyStore = b.makeCacheableSignalKeyStore || baileys.makeCacheableSignalKeyStore;
+const fetchLatestBaileysVersion = b.fetchLatestBaileysVersion || baileys.fetchLatestBaileysVersion;
+const Browsers = b.Browsers || baileys.Browsers;
+const DisconnectReason = b.DisconnectReason || baileys.DisconnectReason;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,24 +211,15 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Dynamic Web Pairing Session Engine
+// Dynamic Web Pairing Session Engine (No reconnect loops during code entry)
 async function createPairingSocket(num, res) {
     const sessionDir = getSessionDir(num);
 
-    if (fs.existsSync(sessionDir)) {
+    if (res && fs.existsSync(sessionDir)) {
         try { fs.removeSync(sessionDir); } catch(e) {}
     }
 
     try {
-        const baileys = await import('@whiskeysockets/baileys');
-        const makeWASocket = baileys.default?.default || baileys.default || baileys;
-        const useMultiFileAuthState = baileys.useMultiFileAuthState || baileys.default?.useMultiFileAuthState;
-        const delay = baileys.delay || baileys.default?.delay;
-        const makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore || baileys.default?.makeCacheableSignalKeyStore;
-        const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion || baileys.default?.fetchLatestBaileysVersion;
-        const Browsers = baileys.Browsers || baileys.default?.Browsers;
-        const DisconnectReason = baileys.DisconnectReason || baileys.default?.DisconnectReason;
-
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version } = await fetchLatestBaileysVersion();
 
@@ -228,7 +231,7 @@ async function createPairingSocket(num, res) {
             },
             printQRInTerminal: false,
             logger: pino({ level: "fatal" }),
-            browser: Browsers.ubuntu("Chrome"),
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
             markOnlineOnConnect: true
         });
 
@@ -243,12 +246,14 @@ async function createPairingSocket(num, res) {
 
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                if (statusCode === 515 || statusCode !== DisconnectReason.loggedOut) {
-                    console.log(`[SESSION ${num}] Reconnecting automatically...`);
+                
+                // Reconnect ONLY after device linking completes (Status 515)
+                if (statusCode === 515) {
+                    console.log(`[SESSION ${num}] Handshake complete (515) - Connecting bot engine...`);
                     await delay(2000);
                     createPairingSocket(num, null);
                 } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                    console.log(`[LOGOUT] Number ${num} logged out. Deleting session...`);
+                    console.log(`[LOGOUT] Number ${num} logged out. Cleaning session...`);
                     try { if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir); } catch(e) {}
                 }
             }
