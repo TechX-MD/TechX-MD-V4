@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import axios from 'axios';
+import yts from 'yt-search';
 import { fileURLToPath } from 'url';
 import * as baileys from '@whiskeysockets/baileys';
 
@@ -273,7 +274,7 @@ async function createPairingSocket(num, res) {
             }
         });
 
-        // 📩 INCOMING MESSAGES LISTENER (WORKING PLUGINS)
+        // 📩 INCOMING MESSAGES LISTENER (PLUGINS)
         sock.ev.on('messages.upsert', async (m) => {
             try {
                 const msg = m.messages[0];
@@ -310,7 +311,85 @@ async function createPairingSocket(num, res) {
                     await sock.sendMessage(from, { text: `🚀 *Speed:* ${end - start}ms` }, { quoted: msg });
                 }
 
-                // PLUGIN 2: .ai / .gpt (Working ChatGPT AI)
+                // PLUGIN 2: .song / .play / .music (DAVID CYRIL & GIFTED TECH API + YT-SEARCH)
+                else if (command === 'song' || command === 'play' || command === 'music') {
+                    const query = args.join(" ").trim();
+
+                    if (!query) {
+                        return await sock.sendMessage(from, {
+                            text: `🎵 *TechX Song Downloader*\n\nUsage:\n.song <song name>\n.play <song name>\n.song <YouTube URL>`
+                        }, { quoted: msg });
+                    }
+
+                    try {
+                        await sock.sendMessage(from, { react: { text: "⏳", key: msg.key } });
+
+                        let video = null;
+                        let url = query;
+
+                        if (!query.includes("youtube.com") && !query.includes("youtu.be")) {
+                            const result = await yts(query);
+                            if (!result.videos.length) {
+                                return await sock.sendMessage(from, { text: "❌ No song found." }, { quoted: msg });
+                            }
+                            video = result.videos[0];
+                            url = video.url;
+                        }
+
+                        if (video) {
+                            await sock.sendMessage(from, {
+                                image: { url: video.thumbnail },
+                                caption: `🎵 *${video.title}*\n\n⏱ *Duration:* ${video.timestamp}\n\n📥 *Downloading MP3 Audio...*`
+                            }, { quoted: msg });
+                        }
+
+                        const APIS = [
+                            "https://apis.davidcyriltech.my.id/download/ytmp3?url=",
+                            "https://api.giftedtech.web.id/api/download/ytmp3?url="
+                        ];
+
+                        let downloadUrl = null;
+                        let title = video?.title || "song";
+
+                        for (const api of APIS) {
+                            try {
+                                const res = await axios.get(api + encodeURIComponent(url), { timeout: 30000 });
+                                const data = res.data;
+                                downloadUrl = data?.result?.download_url || data?.result?.downloadUrl || data?.result?.url || data?.url || data?.link;
+                                title = data?.result?.title || title;
+                                if (downloadUrl) break;
+                            } catch (e) {}
+                        }
+
+                        if (!downloadUrl) {
+                            throw new Error("Download link not found.");
+                        }
+
+                        const audio = await axios.get(downloadUrl, {
+                            responseType: "arraybuffer",
+                            timeout: 120000,
+                            maxContentLength: Infinity,
+                            maxBodyLength: Infinity
+                        });
+
+                        const buffer = Buffer.from(audio.data);
+
+                        await sock.sendMessage(from, {
+                            audio: buffer,
+                            mimetype: "audio/mpeg",
+                            fileName: title + ".mp3",
+                            ptt: false
+                        }, { quoted: msg });
+
+                        await sock.sendMessage(from, { react: { text: "✅", key: msg.key } });
+
+                    } catch (err) {
+                        console.error("SONG ERROR:", err);
+                        await sock.sendMessage(from, { text: "❌ Failed to download song. Please try again later." }, { quoted: msg });
+                    }
+                }
+
+                // PLUGIN 3: .ai / .gpt (Working ChatGPT AI)
                 else if (command === 'ai' || command === 'gpt') {
                     const query = args.join(" ");
                     if (!query) return await sock.sendMessage(from, { text: '❓ *Please ask a question!* Example: `.ai What is the capital of Zimbabwe?` ' }, { quoted: msg });
@@ -322,31 +401,6 @@ async function createPairingSocket(num, res) {
                         await sock.sendMessage(from, { text: `🤖 *TechX AI Response:*\n\n${reply}` }, { quoted: msg });
                     } catch(e) {
                         await sock.sendMessage(from, { text: '❌ *AI API Error. Please try again later.*' }, { quoted: msg });
-                    }
-                }
-
-                // PLUGIN 3: .play / .song (Working MP3 Music Downloader)
-                else if (command === 'play' || command === 'song') {
-                    const query = args.join(" ");
-                    if (!query) return await sock.sendMessage(from, { text: '🎵 *Please provide a song title!* Example: `.play Jah Prayzah` ' }, { quoted: msg });
-
-                    try {
-                        await sock.sendMessage(from, { text: `🔍 *Searching and downloading song:* _"${query}"_...` }, { quoted: msg });
-                        const searchRes = await axios.get(`https://widipe.com/download/ytdl?url=${encodeURIComponent(query)}`);
-                        const downloadUrl = searchRes.data?.result?.mp3 || searchRes.data?.result?.dl_url;
-                        const title = searchRes.data?.result?.title || query;
-
-                        if (downloadUrl) {
-                            await sock.sendMessage(from, {
-                                audio: { url: downloadUrl },
-                                mimetype: 'audio/mp4',
-                                fileName: `${title}.mp3`
-                            }, { quoted: msg });
-                        } else {
-                            await sock.sendMessage(from, { text: '❌ *Song download link not found. Try another title.*' }, { quoted: msg });
-                        }
-                    } catch(e) {
-                        await sock.sendMessage(from, { text: '❌ *Error downloading song. Try again later.*' }, { quoted: msg });
                     }
                 }
 
@@ -385,48 +439,7 @@ async function createPairingSocket(num, res) {
                     }, { quoted: msg });
                 }
 
-                // PLUGIN 6: .hidetag (Group Tag)
-                else if (command === 'hidetag' || command === 'htag') {
-                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
-                    const groupMetadata = await sock.groupMetadata(from);
-                    const participants = groupMetadata.participants.map(p => p.id);
-                    const tagText = args.join(" ") || "📢 *Attention Everyone!*";
-
-                    await sock.sendMessage(from, {
-                        text: tagText,
-                        mentions: participants
-                    });
-                }
-
-                // PLUGIN 7: .tagall (Tag All Group Members)
-                else if (command === 'tagall') {
-                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
-                    const groupMetadata = await sock.groupMetadata(from);
-                    const participants = groupMetadata.participants;
-                    let listText = `📢 *TAG ALL MEMBERS*\n\n`;
-                    
-                    participants.forEach((p, i) => {
-                        listText += `${i + 1}. @${p.id.split('@')[0]}\n`;
-                    });
-
-                    await sock.sendMessage(from, {
-                        text: listText,
-                        mentions: participants.map(p => p.id)
-                    }, { quoted: msg });
-                }
-
-                // PLUGIN 8: .link (Group Invite Link)
-                else if (command === 'link' || command === 'grouplink') {
-                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
-                    try {
-                        const inviteCode = await sock.groupInviteCode(from);
-                        await sock.sendMessage(from, { text: `🔗 *Group Invite Link:*\nhttps://chat.whatsapp.com/${inviteCode}` }, { quoted: msg });
-                    } catch(e) {
-                        await sock.sendMessage(from, { text: '❌ *Failed to fetch group link. Make sure bot is Admin!*' }, { quoted: msg });
-                    }
-                }
-
-                // PLUGIN 9: .menu
+                // PLUGIN 6: .menu
                 else if (command === 'menu' || command === 'help') {
                     const menuText = `
 ╭━━━〔 *TECHX-MD V4* 〕━━━
@@ -436,17 +449,17 @@ async function createPairingSocket(num, res) {
 ┃ 📟 *Engine:* Baileys MD V4
 ╰━━━━━━━━━━━━━━━━━━
 
+╭━━━〔 📥 *DOWNLOADERS* 〕━━━
+├ .play <song name> - Download Song MP3
+├ .song <title> - Download Song MP3
+└ .tiktok <link> - Download TikTok Video
+
 ╭━━━〔 🤖 *AI & CHAT* 〕━━━
 ├ .ai <question> - Ask ChatGPT AI
 └ .gpt <question> - Ask GPT AI
 
-╭━━━〔 📥 *DOWNLOADERS* 〕━━━
-├ .play <song name> - Download MP3 Music
-├ .song <title> - Download Music
-└ .tiktok <link> - Download TikTok Video
-
 ╭━━━〔 👥 *GROUP TOOLS* 〕━━━
-├ .hidetag <text> - Tag all members silently
+├ .hidetag <text> - Tag all members
 ├ .tagall - Tag all group members
 └ .link - Get Group Invite Link
 
@@ -475,12 +488,12 @@ async function createPairingSocket(num, res) {
                     }, { quoted: msg });
                 }
 
-                // PLUGIN 10: .alive
+                // PLUGIN 7: .alive
                 else if (command === 'alive') {
-                    await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Working Plugins Server is Online!*' }, { quoted: msg });
+                    await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Server is Online!*' }, { quoted: msg });
                 }
 
-                // PLUGIN 11: .owner
+                // PLUGIN 8: .owner
                 else if (command === 'owner') {
                     await sock.sendMessage(from, { text: '📲 *TechX-MD V4 Owner:* +263779411538' }, { quoted: msg });
                 }
