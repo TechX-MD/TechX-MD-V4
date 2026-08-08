@@ -4,18 +4,6 @@ import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
 import { fileURLToPath } from 'url';
-import * as baileys from '@whiskeysockets/baileys';
-
-// Universal Safe Import Extractor for Railway, Render, and Termux
-const b = baileys.default || baileys;
-
-const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || baileys.makeWASocket);
-const useMultiFileAuthState = b.useMultiFileAuthState || baileys.useMultiFileAuthState;
-const delay = b.delay || baileys.delay;
-const makeCacheableSignalKeyStore = b.makeCacheableSignalKeyStore || baileys.makeCacheableSignalKeyStore;
-const fetchLatestBaileysVersion = b.fetchLatestBaileysVersion || baileys.fetchLatestBaileysVersion;
-const Browsers = b.Browsers || baileys.Browsers;
-const DisconnectReason = b.DisconnectReason || baileys.DisconnectReason;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -211,7 +199,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Web Pairing Session Engine
+// Dynamic Web Pairing Session Engine
 async function createPairingSocket(num, res) {
     const sessionDir = getSessionDir(num);
 
@@ -220,6 +208,15 @@ async function createPairingSocket(num, res) {
     }
 
     try {
+        const baileys = await import('@whiskeysockets/baileys');
+        const makeWASocket = baileys.default?.default || baileys.default || baileys;
+        const useMultiFileAuthState = baileys.useMultiFileAuthState || baileys.default?.useMultiFileAuthState;
+        const delay = baileys.delay || baileys.default?.delay;
+        const makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore || baileys.default?.makeCacheableSignalKeyStore;
+        const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion || baileys.default?.fetchLatestBaileysVersion;
+        const Browsers = baileys.Browsers || baileys.default?.Browsers;
+        const DisconnectReason = baileys.DisconnectReason || baileys.default?.DisconnectReason;
+
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version } = await fetchLatestBaileysVersion();
 
@@ -321,6 +318,7 @@ async function createPairingSocket(num, res) {
             }
         });
 
+        // Request pairing code for web user
         if (res && !sock.authState.creds.registered) {
             await delay(3000);
             const code = await sock.requestPairingCode(num);
@@ -347,7 +345,7 @@ app.get('/pair', async (req, res) => {
     createPairingSocket(num, res);
 });
 
-// Auto-restart existing web sessions
+// Auto-restart saved sessions
 try {
     const existingSessions = fs.readdirSync('./').filter(f => f.startsWith('session_'));
     existingSessions.forEach(sDir => {
