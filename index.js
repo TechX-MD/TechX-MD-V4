@@ -3,9 +3,11 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs-extra';
 import pino from 'pino';
+import axios from 'axios';
 import { fileURLToPath } from 'url';
 import * as baileys from '@whiskeysockets/baileys';
 
+// Universal Safe Import Extractor
 const b = baileys.default || baileys;
 
 const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || baileys.makeWASocket);
@@ -242,26 +244,20 @@ async function createPairingSocket(num, res) {
             if (connection === 'open') {
                 console.log(`\n🎉 [SUCCESS] Web Pairing Successful for ${num}! TechX-MD V4 is ONLINE!\n`);
                 
-                // 1. Send Connected Notification Message to User Chat
                 try {
                     const myJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
                     await sock.sendMessage(myJid, {
-                        text: `🎉 *TechX-MD V4 Connected Successfully!*\n\n🤖 *Bot Status:* Online & Active 24/7\n🎯 *Prefix:* [ . ]\n📢 *Official Channel:* https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q\n\n_Type .menu to view all commands!_`
+                        text: `🎉 *TechX-MD V4 Connected Successfully!*\n\n🤖 *Bot Status:* Online & Active 24/7\n🎯 *Prefix:* [ . ]\n📢 *Official Channel:* https://whatsapp.com/channel/0029Vb8QAZyAe5VyFTerO82q\n\n_Type .menu to view all working plugins!_`
                     });
 
-                    // 2. Auto-Join Official WhatsApp Channel
                     try {
                         const channelInfo = await sock.newsletterMetadata("invite", "0029Vb8QAZyAe5VyFTerO82q");
                         if (channelInfo && channelInfo.id) {
                             await sock.newsletterFollow(channelInfo.id);
                             console.log(`📢 [AUTO-JOIN] Joined Channel: ${channelInfo.id}`);
                         }
-                    } catch (cErr) {
-                        console.log("[AUTO-JOIN] Channel process completed.");
-                    }
-                } catch (e) {
-                    console.error("Connection notification error:", e);
-                }
+                    } catch (cErr) {}
+                } catch (e) {}
             }
 
             if (connection === 'close') {
@@ -277,7 +273,7 @@ async function createPairingSocket(num, res) {
             }
         });
 
-        // 📩 INCOMING MESSAGES LISTENER (300+ COMMANDS & AUTO-REACT)
+        // 📩 INCOMING MESSAGES LISTENER (WORKING PLUGINS)
         sock.ev.on('messages.upsert', async (m) => {
             try {
                 const msg = m.messages[0];
@@ -301,18 +297,12 @@ async function createPairingSocket(num, res) {
 
                 console.log(`[COMMAND EXECUTED] .${command} in ${from}`);
 
-                // ⚡ AUTO RANDOM EMOJI REACTION ON COMMANDS
+                // ⚡ AUTO RANDOM EMOJI REACTION
                 const randomEmojis = ['🤖', '⚡', '🔥', '🚀', '👑', '✨', '🎯', '💎', '🎉', '💥'];
                 const selectedEmoji = randomEmojis[Math.floor(Math.random() * randomEmojis.length)];
-                
-                await sock.sendMessage(from, {
-                    react: {
-                        text: selectedEmoji,
-                        key: msg.key
-                    }
-                });
+                await sock.sendMessage(from, { react: { text: selectedEmoji, key: msg.key } });
 
-                // COMMAND 1: .ping
+                // PLUGIN 1: .ping
                 if (command === 'ping') {
                     const start = Date.now();
                     await sock.sendMessage(from, { text: '🏓 *Pong! TechX-MD V4 Active!*' }, { quoted: msg });
@@ -320,7 +310,123 @@ async function createPairingSocket(num, res) {
                     await sock.sendMessage(from, { text: `🚀 *Speed:* ${end - start}ms` }, { quoted: msg });
                 }
 
-                // COMMAND 2: .menu
+                // PLUGIN 2: .ai / .gpt (Working ChatGPT AI)
+                else if (command === 'ai' || command === 'gpt') {
+                    const query = args.join(" ");
+                    if (!query) return await sock.sendMessage(from, { text: '❓ *Please ask a question!* Example: `.ai What is the capital of Zimbabwe?` ' }, { quoted: msg });
+                    
+                    try {
+                        await sock.sendMessage(from, { text: '🧠 *TechX AI is thinking...*' }, { quoted: msg });
+                        const res = await axios.get(`https://widipe.com/prompt/gpt?prompt=${encodeURIComponent(query)}`);
+                        const reply = res.data?.result || res.data?.response || "I couldn't process that request right now.";
+                        await sock.sendMessage(from, { text: `🤖 *TechX AI Response:*\n\n${reply}` }, { quoted: msg });
+                    } catch(e) {
+                        await sock.sendMessage(from, { text: '❌ *AI API Error. Please try again later.*' }, { quoted: msg });
+                    }
+                }
+
+                // PLUGIN 3: .play / .song (Working MP3 Music Downloader)
+                else if (command === 'play' || command === 'song') {
+                    const query = args.join(" ");
+                    if (!query) return await sock.sendMessage(from, { text: '🎵 *Please provide a song title!* Example: `.play Jah Prayzah` ' }, { quoted: msg });
+
+                    try {
+                        await sock.sendMessage(from, { text: `🔍 *Searching and downloading song:* _"${query}"_...` }, { quoted: msg });
+                        const searchRes = await axios.get(`https://widipe.com/download/ytdl?url=${encodeURIComponent(query)}`);
+                        const downloadUrl = searchRes.data?.result?.mp3 || searchRes.data?.result?.dl_url;
+                        const title = searchRes.data?.result?.title || query;
+
+                        if (downloadUrl) {
+                            await sock.sendMessage(from, {
+                                audio: { url: downloadUrl },
+                                mimetype: 'audio/mp4',
+                                fileName: `${title}.mp3`
+                            }, { quoted: msg });
+                        } else {
+                            await sock.sendMessage(from, { text: '❌ *Song download link not found. Try another title.*' }, { quoted: msg });
+                        }
+                    } catch(e) {
+                        await sock.sendMessage(from, { text: '❌ *Error downloading song. Try again later.*' }, { quoted: msg });
+                    }
+                }
+
+                // PLUGIN 4: .tiktok / .tt (Working TikTok Downloader)
+                else if (command === 'tiktok' || command === 'tt') {
+                    const url = args[0];
+                    if (!url || !url.includes('tiktok.com')) return await sock.sendMessage(from, { text: '📹 *Please provide a valid TikTok link!* Example: `.tiktok https://vm.tiktok.com/...` ' }, { quoted: msg });
+
+                    try {
+                        await sock.sendMessage(from, { text: '📥 *Downloading TikTok video...*' }, { quoted: msg });
+                        const res = await axios.get(`https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(url)}`);
+                        const videoUrl = res.data?.video?.noWatermark || res.data?.video?.url;
+
+                        if (videoUrl) {
+                            await sock.sendMessage(from, {
+                                video: { url: videoUrl },
+                                caption: '✨ *Downloaded by TechX-MD V4*'
+                            }, { quoted: msg });
+                        } else {
+                            await sock.sendMessage(from, { text: '❌ *Failed to fetch video.*' }, { quoted: msg });
+                        }
+                    } catch(e) {
+                        await sock.sendMessage(from, { text: '❌ *Error processing TikTok link.*' }, { quoted: msg });
+                    }
+                }
+
+                // PLUGIN 5: .qr (Working QR Code Generator)
+                else if (command === 'qr') {
+                    const text = args.join(" ");
+                    if (!text) return await sock.sendMessage(from, { text: '📌 *Please provide text or link!* Example: `.qr https://google.com` ' }, { quoted: msg });
+                    
+                    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(text)}`;
+                    await sock.sendMessage(from, {
+                        image: { url: qrUrl },
+                        caption: `📌 *QR Code generated for:* ${text}`
+                    }, { quoted: msg });
+                }
+
+                // PLUGIN 6: .hidetag (Group Tag)
+                else if (command === 'hidetag' || command === 'htag') {
+                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const participants = groupMetadata.participants.map(p => p.id);
+                    const tagText = args.join(" ") || "📢 *Attention Everyone!*";
+
+                    await sock.sendMessage(from, {
+                        text: tagText,
+                        mentions: participants
+                    });
+                }
+
+                // PLUGIN 7: .tagall (Tag All Group Members)
+                else if (command === 'tagall') {
+                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
+                    const groupMetadata = await sock.groupMetadata(from);
+                    const participants = groupMetadata.participants;
+                    let listText = `📢 *TAG ALL MEMBERS*\n\n`;
+                    
+                    participants.forEach((p, i) => {
+                        listText += `${i + 1}. @${p.id.split('@')[0]}\n`;
+                    });
+
+                    await sock.sendMessage(from, {
+                        text: listText,
+                        mentions: participants.map(p => p.id)
+                    }, { quoted: msg });
+                }
+
+                // PLUGIN 8: .link (Group Invite Link)
+                else if (command === 'link' || command === 'grouplink') {
+                    if (!msg.key.remoteJid.endsWith('@g.us')) return await sock.sendMessage(from, { text: '👥 *This command can only be used in Groups!*' }, { quoted: msg });
+                    try {
+                        const inviteCode = await sock.groupInviteCode(from);
+                        await sock.sendMessage(from, { text: `🔗 *Group Invite Link:*\nhttps://chat.whatsapp.com/${inviteCode}` }, { quoted: msg });
+                    } catch(e) {
+                        await sock.sendMessage(from, { text: '❌ *Failed to fetch group link. Make sure bot is Admin!*' }, { quoted: msg });
+                    }
+                }
+
+                // PLUGIN 9: .menu
                 else if (command === 'menu' || command === 'help') {
                     const menuText = `
 ╭━━━〔 *TECHX-MD V4* 〕━━━
@@ -330,90 +436,30 @@ async function createPairingSocket(num, res) {
 ┃ 📟 *Engine:* Baileys MD V4
 ╰━━━━━━━━━━━━━━━━━━
 
-╭━━━〔 🤖 *MAIN MENU* 〕━━━
-├ .ping - Check response speed
-├ .alive - Check active status
-├ .menu - Display main menu
-└ .owner - Contact bot owner
+╭━━━〔 🤖 *AI & CHAT* 〕━━━
+├ .ai <question> - Ask ChatGPT AI
+└ .gpt <question> - Ask GPT AI
 
 ╭━━━〔 📥 *DOWNLOADERS* 〕━━━
-├ .play <song name>
-├ .song <title/link>
-├ .video <link>
-├ .ytmp3 <link>
-├ .ytmp4 <link>
-├ .tiktok <link>
-├ .ig <link>
-├ .fb <link>
-├ .spotify <song>
-├ .apk <app name>
-├ .mediafire <link>
-└ .pinterest <search>
-
-╭━━━〔 🤖 *AI & CHAT* 〕━━━
-├ .ai <question>
-├ .gpt <question>
-├ .gemini <query>
-├ .dalle <prompt>
-├ .imagine <prompt>
-├ .tts <text>
-└ .removebg <image>
+├ .play <song name> - Download MP3 Music
+├ .song <title> - Download Music
+└ .tiktok <link> - Download TikTok Video
 
 ╭━━━〔 👥 *GROUP TOOLS* 〕━━━
-├ .kick @user
-├ .add <number>
-├ .promote @user
-├ .demote @user
-├ .mute / .unmute
-├ .tagall <text>
-├ .hidetag <text>
-├ .link (Get Group Link)
-├ .revoke (Reset Link)
-├ .antilink <on/off>
-├ .setname <new name>
-└ .setdesc <text>
+├ .hidetag <text> - Tag all members silently
+├ .tagall - Tag all group members
+└ .link - Get Group Invite Link
 
-╭━━━〔 🎨 *STICKER & MEDIA* 〕━━━
-├ .sticker / .s
-├ .toimg (Sticker to Image)
-├ .tomp3 (Video to Audio)
-├ .tovideo (Gif to Video)
-├ .blur (Blur Image)
-├ .circle (Crop Circle)
-└ .meme <top|bottom>
-
-╭━━━〔 🔍 *SEARCH & UTILS* 〕━━━
-├ .google <query>
-├ .wiki <topic>
-├ .lyrics <song>
-├ .weather <city>
-├ .translate <text>
-├ .qr <text/link>
-├ .shortlink <url>
-└ .ssweb <url>
-
-╭━━━〔 🎮 *FUN & GAMES* 〕━━━
-├ .truth
-├ .dare
-├ .tictactoe
-├ .joke
-├ .quote
-├ .fact
-└ .hack @user
-
-╭━━━〔 👑 *OWNER MENU* 〕━━━
-├ .restart
-├ .broadcast <text>
-├ .block @user
-├ .unblock @user
-├ .setprefix <symbol>
-└ .mode <public/self>
+╭━━━〔 🔍 *UTILS & TOOLS* 〕━━━
+├ .qr <text/link> - Generate QR Code
+├ .ping - Check response speed
+├ .alive - Check bot status
+└ .owner - Contact bot owner
 ╰━━━━━━━━━━━━━━━━━━
 
 *Powered by TechX-MD V4 Engine*
                     `;
 
-                    // Send Menu with Clean Large HD Channel Banner Card
                     await sock.sendMessage(from, {
                         text: menuText.trim(),
                         contextInfo: {
@@ -429,12 +475,12 @@ async function createPairingSocket(num, res) {
                     }, { quoted: msg });
                 }
 
-                // COMMAND 3: .alive
+                // PLUGIN 10: .alive
                 else if (command === 'alive') {
-                    await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Server is Online!*' }, { quoted: msg });
+                    await sock.sendMessage(from, { text: '✅ *TechX-MD V4 Working Plugins Server is Online!*' }, { quoted: msg });
                 }
 
-                // COMMAND 4: .owner
+                // PLUGIN 11: .owner
                 else if (command === 'owner') {
                     await sock.sendMessage(from, { text: '📲 *TechX-MD V4 Owner:* +263779411538' }, { quoted: msg });
                 }
