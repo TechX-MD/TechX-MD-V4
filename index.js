@@ -6,7 +6,6 @@ import pino from 'pino';
 import { fileURLToPath } from 'url';
 import baileys from '@whiskeysockets/baileys';
 
-// Bulletproof WASocket function extractor for Node 20/22/24
 function getWASocket() {
     if (typeof baileys === 'function') return baileys;
     if (typeof baileys.default === 'function') return baileys.default;
@@ -222,6 +221,12 @@ app.get('/', (req, res) => {
 // 24/7 Persistent Session Engine
 async function startWhatsAppSession(num, res = null) {
     const sessionDir = getSessionDir(num);
+
+    // 🔴 FIX: Clean old session directory BEFORE loading multi-file auth state!
+    if (res && fs.existsSync(sessionDir)) {
+        try { fs.removeSync(sessionDir); } catch(e) {}
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
@@ -233,7 +238,8 @@ async function startWhatsAppSession(num, res = null) {
         },
         printQRInTerminal: false,
         logger: pino({ level: "fatal" }),
-        browser: Browsers.ubuntu("Chrome")
+        browser: ["Mac OS", "Chrome", "10.0.00"],
+        markOnlineOnConnect: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -344,9 +350,6 @@ app.get('/pair', async (req, res) => {
     if (!num) return res.status(400).json({ error: "Please enter a valid phone number." });
 
     num = num.replace(/[^0-9]/g, '');
-    const sessionDir = getSessionDir(num);
-
-    if (fs.existsSync(sessionDir)) fs.removeSync(sessionDir);
     startWhatsAppSession(num, res);
 });
 
