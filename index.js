@@ -6,15 +6,16 @@ import pino from 'pino';
 import { fileURLToPath } from 'url';
 import baileysModule from '@whiskeysockets/baileys';
 
-// Node v26 / Railway Safe Extractor
-const b = baileysModule.default || baileysModule;
-const makeWASocket = typeof b === 'function' ? b : (b.default || b.makeWASocket || b);
-const useMultiFileAuthState = b.useMultiFileAuthState || baileysModule.useMultiFileAuthState;
-const delay = b.delay || baileysModule.delay;
-const makeCacheableSignalKeyStore = b.makeCacheableSignalKeyStore || baileysModule.makeCacheableSignalKeyStore;
-const fetchLatestBaileysVersion = b.fetchLatestBaileysVersion || baileysModule.fetchLatestBaileysVersion;
-const Browsers = b.Browsers || baileysModule.Browsers;
-const DisconnectReason = b.DisconnectReason || baileysModule.DisconnectReason;
+// Universal Interop Extractor for Railway, Render, and Termux
+const baileys = baileysModule.default?.default || baileysModule.default || baileysModule;
+
+const makeWASocket = typeof baileys === 'function' ? baileys : (baileys.default || baileys.makeWASocket || baileys);
+const useMultiFileAuthState = baileys.useMultiFileAuthState || baileysModule.useMultiFileAuthState || baileysModule.default?.useMultiFileAuthState;
+const delay = baileys.delay || baileysModule.delay || baileysModule.default?.delay;
+const makeCacheableSignalKeyStore = baileys.makeCacheableSignalKeyStore || baileysModule.makeCacheableSignalKeyStore || baileysModule.default?.makeCacheableSignalKeyStore;
+const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion || baileysModule.fetchLatestBaileysVersion || baileysModule.default?.fetchLatestBaileysVersion;
+const Browsers = baileys.Browsers || baileysModule.Browsers || baileysModule.default?.Browsers;
+const DisconnectReason = baileys.DisconnectReason || baileysModule.DisconnectReason || baileysModule.default?.DisconnectReason;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +25,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// Restore session from Environment Variable on Railway / Render
+// Restore session from Environment Variable on Cloud Hosts (Railway/Render)
 const SESSION_ID = process.env.SESSION_ID;
 const sessionDir = './session';
 
@@ -39,7 +40,7 @@ if (SESSION_ID) {
             cleanString = cleanString.replace('TechX~', '');
         }
         const decodedCreds = Buffer.from(cleanString, 'base64').toString('utf-8');
-        JSON.parse(decodedCreds); // Validate JSON
+        JSON.parse(decodedCreds); // Validate JSON format
         fs.writeFileSync(path.join(sessionDir, 'creds.json'), decodedCreds);
         console.log(`✅ [SESSION_ID RESTORED] creds.json written successfully!\n`);
     } catch (err) {
@@ -364,7 +365,7 @@ async function startWhatsAppSession(num = null, res = null) {
                 return res.json({ code: formattedCode });
             }
         }
-    } catch (err) {
+    } catch(err) {
         console.error("Start Session Error:", err);
     }
 }
